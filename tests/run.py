@@ -63,10 +63,12 @@ def redis(container_executor):
 class Test:
 
     @pytest.mark.parametrize('test_image', ['siderpy_tests_3.7', 'siderpy_tests_3.8'])
-    def test(self, redis, container_executor, test_image):
+    @pytest.mark.parametrize('env', [[], ['SIDERPY_DISABLE_HIREDIS=1']])
+    def test(self, redis, container_executor, test_image, env):
         container = container_executor.run_wait_exit(
                 test_image,
-                command='pytest --timeout=15 -s -v --durations=0 /opt/siderpy/tests/tests.py',
+                command='pytest --timeout=30 -s -v --durations=5 /opt/siderpy/tests/tests.py',
+                environment=env,
                 links={redis.id: 'redis'})
         print(container.logs().decode())
         data = container.wait()

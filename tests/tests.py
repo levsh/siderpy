@@ -24,7 +24,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == b'OK'
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_simple_str_double(self, proto):
@@ -34,12 +34,12 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == b'OK'
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert proto.has_data()
         data = proto.gets()
         assert data == b'OK'
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_err(self, proto):
@@ -48,7 +48,7 @@ class TestRedisProtocol:
         with pytest.raises(siderpy.RedisError, match='Err'):
             proto.gets()
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_int(self, proto):
@@ -57,7 +57,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == 1000
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_bulk_str(self, proto):
@@ -66,7 +66,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == b'foobar'
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_empty_str(self, proto):
@@ -75,7 +75,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == b''
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_null(self, proto):
@@ -84,7 +84,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data is None
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_empty_array(self, proto):
@@ -93,7 +93,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == []
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_array(self, proto):
@@ -102,7 +102,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == [b'foo', b'bar']
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
         proto.feed(b'*3\r\n:1\r\n:2\r\n:3\r\n')
@@ -110,7 +110,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == [1, 2, 3]
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
         proto.feed(b'*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n')
@@ -118,7 +118,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == [1, 2, 3, 4, b'foobar']
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
     def test_parse_null_array(self, proto):
@@ -127,7 +127,38 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data is None
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
+        assert not proto.has_data()
+
+    def test_parse_big_incomplete_array(self, proto):
+        raw = (b'*1000\r\n$6\r\nvalue0\r\n$6\r\nvalue1\r\n$6\r\nvalue2\r\n$6\r\nvalue3\r\n$6\r\nvalue4\r\n'
+               b'$6\r\nvalue5\r\n$6\r\nvalue6\r\n$6\r\nvalue7\r\n$6\r\nvalue8\r\n$6\r\nvalue9\r\n$7\r\n'
+               b'value10\r\n$7\r\nvalue11\r\n$7\r\nvalue12\r\n$7\r\nvalue13\r\n$7\r\nvalue14\r\n$7\r\n'
+               b'value15\r\n$7\r\nvalue16\r\n$7\r\nvalue17\r\n$7\r\nvalue18\r\n$7\r\nvalue19\r\n$7\r\n'
+               b'value20\r\n$7\r\nvalue21\r\n$7\r\nvalue22\r\n$7\r\nvalue23\r\n$7\r\nvalue24\r\n$7\r\n'
+               b'value25\r\n$7\r\nvalue26\r\n$7\r\nvalue27\r\n$7\r\nvalue28\r\n$7\r\nvalue29\r\n$7\r\n'
+               b'value30\r\n$7\r\nvalue31\r\n$7\r\nvalue32\r\n$7\r\nvalue33\r\n$7\r\nvalue34\r\n$7\r\n'
+               b'value35\r\n$7\r\nvalue36\r\n$7\r\nvalue37\r\n$7\r\nvalue38\r\n$7\r\nvalue39\r\n$7\r\n'
+               b'value40\r\n$7\r\nvalue41\r\n$7\r\nvalue42\r\n$7\r\nvalue43\r\n$7\r\nvalue44\r\n$7\r\n'
+               b'value45\r\n$7\r\nvalue46\r\n$7\r\nvalue47\r\n$7\r\nvalue48\r\n$7\r\nvalue49\r\n$7\r\n'
+               b'value50\r\n$7\r\nvalue51\r\n$7\r\nvalue52\r\n$7\r\nvalue53\r\n$7\r\nvalue54\r\n$7\r\n'
+               b'value55\r\n$7\r\nvalue56\r\n$7\r\nvalue57\r\n$7\r\nvalue58\r\n$7\r\nvalue59\r\n$7\r\n'
+               b'value60\r\n$7\r\nvalue61\r\n$7\r\nvalue62\r\n$7\r\nvalue63\r\n$7\r\nvalue64\r\n$7\r\n'
+               b'value65\r\n$7\r\nvalue66\r\n$7\r\nvalue67\r\n$7\r\nvalue68\r\n$7\r\nvalue69\r\n$7\r\n'
+               b'value70\r\n$7\r\nvalue71\r\n$7\r\nvalue72\r\n$7\r\nvalue73\r\n$7\r\nvalue74\r\n$7\r\n'
+               b'value75\r\n$7\r\nvalue76\r\n$7\r\nvalue77\r\n$7\r\nvalue78\r\n')
+        proto.feed(raw)
+        assert proto.gets() is False
+        assert not proto.has_data()
+
+    def test_parse_array_in_two_steps(self, proto):
+        raw = b'*5\r\n$6\r\nvalue0\r\n$6\r\nvalue1\r\n$6\r\nvalue2\r\n$6\r\nvalue3'
+        proto.feed(raw)
+        assert proto.gets() is False
+        assert proto.has_data()
+        raw = b'\r\n$6\r\nvalue4\r\n'
+        proto.feed(raw)
+        assert proto.gets() == [b'value0', b'value1', b'value2', b'value3', b'value4']
         assert not proto.has_data()
 
     def test_parse_array_array(self, proto):
@@ -138,7 +169,7 @@ class TestRedisProtocol:
         assert data[1][0] == b'Foo'
         if not siderpy.hiredis:
             assert isinstance(data[1][1], siderpy.RedisError)
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         else:
             assert isinstance(data[1][1], siderpy.hiredis.ReplyError)
         assert not proto.has_data()
@@ -148,16 +179,16 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == [b'foo', None, b'bar']
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
-    def test_parse_remain(self, proto):
+    def test_parse_unparsed(self, proto):
         proto.feed(b'*3\r\n:1\r\n:2\r\n:3\r\n$6\r\n')
         assert proto.has_data()
         data = proto.gets()
         assert data == [1, 2, 3]
         if not siderpy.hiredis:
-            assert proto._remain == b'$6\r\n'
+            assert proto._unparsed == b'$6\r\n'
         assert proto.has_data()
         assert proto.gets() is False
 
@@ -170,7 +201,7 @@ class TestRedisProtocol:
         data = proto.gets()
         assert data == 1000
         if not siderpy.hiredis:
-            assert proto._remain == b''
+            assert proto._unparsed == b''
         assert not proto.has_data()
 
         proto.feed(b'$6\r\nfoobar\r\n:1000\r\n$6\r\n')
@@ -182,7 +213,7 @@ class TestRedisProtocol:
         assert data == 1000
         assert proto.has_data()
         if not siderpy.hiredis:
-            assert proto._remain == b'$6\r\n'
+            assert proto._unparsed == b'$6\r\n'
 
     def test_make_cmd(self, proto):
         assert proto.make_cmd(
@@ -459,6 +490,8 @@ class TestBenchmarks:
                 await redis.mget(*keys)
 
     async def test_set_get_aioredis(self, event_loop, prepare):
+        if siderpy.hiredis is None:
+            return
         redis = await aioredis.create_redis_pool('redis://' + REDIS)
         keys = [f'key{i}' for i in range(self.count)]
         for _ in range(5):

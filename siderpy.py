@@ -1,3 +1,4 @@
+import os
 import asyncio
 import collections
 import contextlib
@@ -5,12 +6,16 @@ import functools
 import logging
 import numbers
 import ssl
+import types
 import typing as tp
 
-try:
-    import hiredis
-except ImportError:
-    hiredis = None
+
+hiredis = None
+if not os.environ.get('SIDERPY_DISABLE_HIREDIS'):
+    try:
+        import hiredis
+    except ImportError:
+        pass
 
 
 LOG = logging.getLogger(__name__)
@@ -32,14 +37,10 @@ class Protocol:
     def __init__(self):
         if hiredis is None:
             self._reader = None
+            self._unparsed = b''
+            self._parser = self._parse()
+            next(self._parser)
             self._ready = collections.deque()
-            self._remain = None
-            self._parser_map = {
-                b'+': self._parse_string,
-                b'-': self._parse_error,
-                b':': self._parse_integer,
-                b'$': self._parse_bulk_string,
-                b'*': self._parse_array}
             self.feed = self._feed
             self.gets = self._gets
             self.has_data = self._has_data
@@ -62,7 +63,7 @@ class Protocol:
             self._reader = hiredis.Reader()
         else:
             self._ready.clear()
-            self._remain = None
+            self._unparsed = None
 
     def make_cmd(self, cmd_name: str, cmd_args: list) -> bytearray:
         buf = bytearray()
@@ -74,17 +75,36 @@ class Protocol:
         return buf
 
     def _has_data(self) -> bool:
-        return bool(self._ready) or bool(self._remain)
+        return bool(self._ready) or bool(self._unparsed)
+
+    def _parse(self):
+        bytestring = b''
+        sub_parser = None
+        sub_parser_map = {
+            b'+': self._parse_string(),
+            b'-': self._parse_error(),
+            b':': self._parse_integer(),
+            b'$': self._parse_bulk_string(),
+            b'*': self._parse_array()}
+        for v in sub_parser_map.values():
+            next(v)
+        data = None
+        while True:
+            bytestring = yield data, bytestring
+            if sub_parser is None:
+                sub_parser = sub_parser_map[bytestring[:1]]
+            data, bytestring = sub_parser.send(bytestring)
+            if data is not False:
+                sub_parser = None
 
     def _feed(self, bytestring: bytes):
-        if self._remain:
-            bytestring = self._remain + bytestring
-        while bytestring:
-            data, bytestring = self._parser_map[bytestring[:1]](bytestring)
+        data = None
+        self._unparsed += bytestring
+        while self._unparsed:
+            data, self._unparsed = self._parser.send(self._unparsed)
             if data is False:
-                return
+                break
             self._ready.append(data)
-            self._remain = bytestring
 
     def _gets(self):
         if self._ready:
@@ -100,42 +120,80 @@ class Protocol:
             raise RedisError(data) from data
         return data
 
-    def _parse_string(self, bytestring: bytes) -> tp.Tuple[bytes]:
-        data, remain = bytestring[1:].split(b'\r\n', 1)
-        return data, remain
+    def _parse_string(self):
+        data = None
+        while True:
+            bytestring = yield data
+            data = bytestring[1:].split(b'\r\n', 1)
+            if len(data) != 2:
+                data = False, bytestring
 
-    def _parse_error(self, bytestring: bytes) -> tp.Tuple[bytes]:
-        data, remain = bytestring[1:].split(b'\r\n', 1)
-        return RedisError(data.decode()), remain
+    def _parse_error(self):
+        data = None
+        while True:
+            bytestring = yield data
+            data = bytestring[1:].split(b'\r\n', 1)
+            if len(data) != 2:
+                data = False, bytestring
+            else:
+                data = RedisError(data[0].decode()), data[1]
 
-    def _parse_integer(self, bytestring: bytes) -> tp.Tuple[bytes]:
-        data, remain = bytestring[1:].split(b'\r\n', 1)
-        return int(data.decode()), remain
+    def _parse_integer(self):
+        data = None
+        while True:
+            bytestring = yield data
+            data = bytestring[1:].split(b'\r\n', 1)
+            if len(data) != 2:
+                data = False, bytestring
+            else:
+                data = int(data[0].decode()), data[1]
 
-    def _parse_bulk_string(self, bytestring: bytes) -> tp.Tuple[bytes]:
-        string_len, remain = bytestring[1:].split(b'\r\n', 1)
-        string_len = int(string_len.decode())
-        if string_len == -1:
-            return None, remain
-        if len(remain) - 2 < string_len:
-            return False, bytestring
-        return remain[:string_len], remain[string_len + 2:]
+    def _parse_bulk_string(self):
+        data = None
+        while True:
+            bytestring = yield data
+            data = bytestring[1:].split(b'\r\n', 1)
+            if len(data) != 2:
+                data = False, bytestring
+                continue
+            strlen, remain = int(data[0].decode()), data[1]
+            if strlen == -1:
+                data = None, remain
+                continue
+            if len(remain) - 2 < strlen:
+                data = False, bytestring
+                continue
+            data = remain[:strlen], remain[strlen + 2:]
 
-    def _parse_array(self, bytestring: bytes) -> tp.Tuple[bytes]:
+    def _parse_array(self):
+        data = None
         out = []
-        number_of_elements, remain = bytestring[1:].split(b'\r\n', 1)
-        number_of_elements = int(number_of_elements.decode())
-        if number_of_elements == -1:
-            return None, remain
-        if number_of_elements == 0:
-            return [], remain
-        while len(out) != number_of_elements:
-            bytestring = remain
-            element, remain = self._parser_map[bytestring[:1]](bytestring)
-            if bytestring == remain:
-                return None, bytestring
-            out.append(element)
-        return out, remain
+        while True:
+            bytestring = yield data
+            data = bytestring[1:].split(b'\r\n', 1)
+            if len(data) != 2:
+                data = False, bytestring
+                continue
+            number_of_elements, remain = int(data[0].decode()), data[1]
+            if number_of_elements == -1:
+                data = None, remain
+                continue
+            if number_of_elements == 0:
+                data = [], remain
+                continue
+            sub_parser = self._parse()
+            next(sub_parser)
+            while len(out) != number_of_elements:
+                if not remain:
+                    remain = yield False, remain
+                    continue
+                data, remain = sub_parser.send(remain)
+                if data is False:
+                    remain = yield False, remain
+                    continue
+                out.append(data)
+            data = out, remain
+            out = []
 
 
 class Pool:
