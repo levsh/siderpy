@@ -14,9 +14,7 @@ setup(
     author_email='roma.koshel@gmail.com',
     license='MIT',
     py_modules=['siderpy'],
-    install_requires=[
-        'hiredis',
-    ],
+    extras_require={'hiredis': ['hiredis']},
     packages=find_packages(exclude=("tests",)),
     include_package_data=True,
     python_requires=">=3.7",
