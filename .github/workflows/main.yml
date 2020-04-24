@@ -30,7 +30,7 @@ jobs:
     - name: prepare
       run: |
         pip install -r tests/requirements.txt
-        pip install .
+        pip install ${{ matrix.extras }}
 
     - name: pytest
       run: pytest --timeout=30 -s -v --durations=5 tests/tests.py
