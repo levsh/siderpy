@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        image_tag: [3.7-slim, 3.8-slim]
+    
+    services:
+      redis:
+        image: redis:latest
+        ports:
+         - 6379:6379
+        
+    container:
+      image: python:${{ matrix.image_tag }}
+
+    steps:
+    - uses: actions/checkout@v2
+      
+    - name: prepare
+      run: |
+        pip install -r tests/requirements.txt
+        pip install .
+
+    - name: pytest
+      run: pytest --timeout=30 -s tests/tests.py

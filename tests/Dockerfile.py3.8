@@ -1,0 +1,5 @@
+FROM python:3.8-slim
+
+ADD . /opt/siderpy
+RUN pip install -e /opt/siderpy
+RUN pip install pytest-asyncio pytest-timeout aioredis

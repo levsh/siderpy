@@ -1,0 +1,34 @@
+version: '3'
+services:
+
+  redis_3.7:
+    image: redis:latest
+    ports:
+      - "6379"
+
+  redis_3.8:
+    image: redis:latest
+    ports:
+      - "6379"
+
+  tests_3.7:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile.py3.7
+    volumes:
+      - .:/opt/siderpy
+    links:
+      - redis_3.7:redis
+    command:
+      pytest --timeout=15 -s -v --durations=0 /opt/siderpy/tests/tests.py
+
+  tests_3.8:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile.py3.8
+    volumes:
+      - .:/opt/siderpy
+    links:
+      - redis_3.8:redis
+    command:
+      pytest --timeout=15 -s -v --durations=0 /opt/siderpy/tests/tests.py
