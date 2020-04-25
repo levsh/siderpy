@@ -1,4 +1,6 @@
 import asyncio
+import os
+import ssl
 
 import aioredis
 import pytest
@@ -8,7 +10,9 @@ import siderpy
 siderpy.LOG.setLevel('DEBUG')
 
 
-REDIS = 'redis'
+REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
+REDIS_PORT = os.environ.get('REDIS_PORT', 6379)
+USE_SSL = os.environ.get('SIDERPY_USE_SSL')
 
 
 @pytest.fixture
@@ -226,32 +230,62 @@ class TestRedisProtocol:
                 'set', ['key', 1]) == b'*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$1\r\n1\r\n'
 
 
+pytestmark = pytest.mark.asyncio
+
+
 @pytest.fixture
 def event_loop(scope='session'):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
-
-
-pytestmark = pytest.mark.asyncio
+    try:
+        yield loop
+    finally:
+        loop.close()
 
 
 @pytest.fixture()
-async def prepare():
-    redis = siderpy.Redis(REDIS)
+def redis():
+    ssl_ctx = None
+    if USE_SSL:
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
+    redis = siderpy.Redis(REDIS_HOST, port=REDIS_PORT, ssl_ctx=ssl_ctx)
+    try:
+        yield redis
+    finally:
+        redis.close_connection()
+
+
+@pytest.fixture()
+async def prepare(redis):
     await redis.flushall()
     yield
 
 
 @pytest.fixture()
-def redis():
-    return siderpy.Redis(REDIS)
+def pool():
+    ssl_ctx = None
+    if USE_SSL:
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
+    pool = siderpy.RedisPool(REDIS_HOST, port=REDIS_PORT, ssl_ctx=ssl_ctx, pool_size=4)
+    try:
+        yield pool
+    finally:
+        pool.close_connections()
 
 
 @pytest.fixture()
-def pool():
-    return siderpy.RedisPool(REDIS, pool_size=4)
+async def aio_redis():
+    ssl_ctx = None
+    if USE_SSL:
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
+    aio_redis = await aioredis.create_redis_pool('redis://{}:{}'.format(REDIS_HOST, REDIS_PORT), ssl=ssl_ctx)
+    yield aio_redis
 
 
 class TestRedis:
@@ -479,8 +513,7 @@ class TestBenchmarks:
 
     count = 1000
 
-    async def test_set_get(self, event_loop, prepare):
-        redis = siderpy.Redis(REDIS)
+    async def test_set_get(self, event_loop, prepare, redis):
         await redis.ping()
         keys = [f'key{i}' for i in range(self.count)]
         for _ in range(5):
@@ -489,13 +522,12 @@ class TestBenchmarks:
             for _ in range(self.count):
                 await redis.mget(*keys)
 
-    async def test_set_get_aioredis(self, event_loop, prepare):
+    async def test_set_get_aioredis(self, event_loop, prepare, aio_redis):
         if siderpy.hiredis is None:
             return
-        redis = await aioredis.create_redis_pool('redis://' + REDIS)
         keys = [f'key{i}' for i in range(self.count)]
         for _ in range(5):
             for i in range(self.count):
-                await redis.set(f'key{i}', f'value{i}')
+                await aio_redis.set(f'key{i}', f'value{i}')
             for _ in range(self.count):
-                await redis.mget(*keys)
+                await aio_redis.mget(*keys)

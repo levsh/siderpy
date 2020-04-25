@@ -1,34 +1,41 @@
 version: '3'
 services:
 
-  redis_3.7:
+  redis:
     image: redis:latest
     ports:
       - "6379"
 
-  redis_3.8:
-    image: redis:latest
+  haproxy:
+    image: haproxy:latest
     ports:
       - "6379"
-
-  tests_3.7:
-    build:
-      context: .
-      dockerfile: tests/Dockerfile.py3.7
     volumes:
       - .:/opt/siderpy
     links:
-      - redis_3.7:redis
-    command:
-      pytest --timeout=15 -s -v --durations=0 /opt/siderpy/tests/tests.py
+      - redis:redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - "redis"
+    command: ["haproxy", "-f", "/opt/siderpy/tests/haproxy.cfg"]
 
-  tests_3.8:
+  tests:
     build:
       context: .
       dockerfile: tests/Dockerfile.py3.8
     volumes:
       - .:/opt/siderpy
     links:
-      - redis_3.8:redis
+      - redis:redis
+      - haproxy:haproxy
+    environment:
+      - REDIS_HOST=haproxy
+      - REDIS_PORT=6379
+      - SIDERPY_USE_SSL=1
+    depends_on:
+      - "redis"
+      - "haproxy"
     command:
       pytest --timeout=15 -s -v --durations=0 /opt/siderpy/tests/tests.py

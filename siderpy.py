@@ -204,6 +204,7 @@ class Pool:
         self.test = test
         self.on_create = on_create
         self._queue = asyncio.LifoQueue(maxsize=self.size)
+        self._used = set()
         for _ in range(self.size):
             self._queue.put_nowait(None)
 
@@ -225,11 +226,14 @@ class Pool:
                 except Exception:
                     self._queue.put_nowait(None)
                     raise
+            self._used.add(item)
             return item
         return await asyncio.wait_for(call(), timeout)
 
     def put(self, item):
-        self._queue.put_nowait(item)
+        if item in self._used:
+            self._used.remove(item)
+            self._queue.put_nowait(item)
 
     @contextlib.asynccontextmanager
     async def get_item(self, timeout: float=None):
@@ -238,6 +242,14 @@ class Pool:
             yield item
         finally:
             self.put(item)
+
+    def close(self, func):
+        for item in self._used:
+            func(item)
+        while self._queue.qsize():
+            item = self._queue.get_nowait()
+            if item:
+                func(item)
 
 
 class Executor:
@@ -256,6 +268,8 @@ class Executor:
         has_data = proto.has_data
         while True:
             raw = await conn[0].read(1024)
+            if raw == b'' and conn[0].at_eof():
+                raise ConnectionError
             feed(raw)
             data = None
             while True:
@@ -327,6 +341,9 @@ class Redis:
         self._subscriber = None
         self._subscriber_cb = None
         self._subscriber_channels = set()
+
+    def close_connection(self):
+        self._pool.close(lambda conn: conn[1].close())
 
     async def _create_connection(self) -> tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         handshake_timeout = None
@@ -445,6 +462,9 @@ class RedisPool:
                     raise RedisError('Returning into pool instance with active pub/sub')
         finally:
             self._pool.put(redis)
+
+    def close_connections(self):
+        self._pool.close(lambda redis: redis.close_connection())
 
     async def _execute(self, attr_name: str, *args):
         async def call():
