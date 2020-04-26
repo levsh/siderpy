@@ -64,7 +64,7 @@ class Protocol:
             self._ready.clear()
             self._unparsed = None
 
-    def make_cmd(self, cmd_name: str, cmd_args: list) -> bytearray:
+    def make_cmd(self, cmd_name: str, cmd_args: tp.Union[tuple, list]) -> bytearray:
         buf = bytearray()
         buf.extend(b'*%d\r\n$%d\r\n%s\r\n' % (len(cmd_args) + 1, len(cmd_name), cmd_name.encode()))
         for arg in cmd_args:
@@ -199,8 +199,10 @@ class Protocol:
 
 class Pool:
 
-    def __init__(self, factory: tp.Coroutine, size: int=0, test: tp.Callable=None, on_create: tp.Callable=None):
+    def __init__(self, factory: tp.Coroutine, size: int=None, test: tp.Callable=None, on_create: tp.Callable=None):
         self.factory = factory
+        if size is None:
+            size = POOL_SIZE
         self.size = size
         self.test = test
         self.on_create = on_create
@@ -244,7 +246,7 @@ class Pool:
         finally:
             self.put(item)
 
-    def close(self, func):
+    def close(self, func: tp.Callable):
         for item in self._used:
             func(item)
         while self._queue.qsize():
@@ -258,13 +260,13 @@ class Redis:
     __slots__ = ['_host', '_port', '_timeout', '_ssl_ctx', '_pool', '_proto', '_pipeline',
                  '_buf', '_subscriber', '_subscriber_cb', '_subscriber_channels']
 
-    def __init__(self,
-                 host: str,
-                 port: int=REDIS_PORT,
-                 timeout: float=CONN_TIMEOUT,
-                 ssl_ctx: ssl.SSLContext=None):
+    def __init__(self, host: str, port: int=None, timeout: float=None, ssl_ctx: ssl.SSLContext=None):
         self._host = host
+        if port is None:
+            port = REDIS_PORT
         self._port = port
+        if timeout is None:
+            timeout = CONN_TIMEOUT
         self._timeout = timeout
         self._ssl_ctx = ssl_ctx
         self._pool = Pool(self._create_connection, size=1,
@@ -421,14 +423,13 @@ class Redis:
 
 class RedisPool:
 
-    def __init__(self,
-                 host: str,
-                 port: int=REDIS_PORT,
-                 timeout: float=CONN_TIMEOUT,
-                 size: int=POOL_SIZE,
-                 ssl_ctx: ssl.SSLContext=None):
+    def __init__(self, host: str, port: int=None, timeout: float=None, size: int=None, ssl_ctx: ssl.SSLContext=None):
         self._host = host
+        if port is None:
+            port = REDIS_PORT
         self._port = port
+        if timeout is None:
+            timeout = CONN_TIMEOUT
         self._timeout = timeout
         self._ssl_ctx = ssl_ctx
         self._pool = Pool(self._factory, size=size)
