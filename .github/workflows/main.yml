@@ -27,7 +27,7 @@ jobs:
         pip install pylint
         pip install -r tests/requirements.txt
     - name: Run pytest
-      run: pytest --timeout=30 -sv --durations=5 tests/run.py
+      run: pytest --timeout=30 -svv --durations=5 tests/run.py
     - name: Linter
       run: |
         pylint siderpy.py

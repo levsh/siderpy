@@ -75,7 +75,7 @@ class Test:
                     environment=['REDIS_HOST=redis', 'REDIS_PORT=6379'])
             env_redis = ['REDIS_HOST=haproxy', 'REDIS_PORT=6379']
             links.update({haproxy.id: 'haproxy'})
-        command = ('pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py'
+        command = ('pytest --timeout=30 -svv --durations=5 /opt/siderpy/tests/tests.py'
                    ' -k TestRedisProtocol -k TestRedis')
         container = container_executor.run_wait_exit(
                 test_image,
@@ -99,7 +99,7 @@ class Test:
                     environment=['REDIS_HOST=redis', 'REDIS_PORT=6379'])
             env_redis = ['REDIS_HOST=haproxy', 'REDIS_PORT=6379']
             links.update({haproxy.id: 'haproxy'})
-        command = 'pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py -k TestBenchmark'
+        command = 'pytest --timeout=30 -svv --durations=5 /opt/siderpy/tests/tests.py -k TestBenchmark'
         container = container_executor.run_wait_exit(
                 'siderpy_tests_3.8',
                 command=command,

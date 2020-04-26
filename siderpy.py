@@ -51,8 +51,8 @@ class Protocol:
 
     def __str__(self):
         if self._reader:
-            return f'{self.__class__.__name__} {self._reader}'
-        return f'{self.__class__.__name__}'
+            return f'{self.__class__.__module__}.{self.__class__.__name__} {self._reader}'
+        return f'{self.__class__.__module__}.{self.__class__.__name__}'
 
     def __repr__(self):
         return self.__str__()
@@ -279,6 +279,12 @@ class Redis:
         self._subscriber_cb = None
         self._subscriber_channels = set()
 
+    def __str__(self):
+        return f'{self.__class__.__module__}.{self.__class__.__name__} ({self._host}, {self._port})'
+
+    def __repr__(self):
+        return self.__str__()
+
     def close_connection(self):
         self._pool.close(lambda conn: conn[1].close())
 
@@ -343,6 +349,7 @@ class Redis:
         has_data = proto.has_data
         while True:
             raw = await r.read(1024)
+            LOG.debug('read: %s', raw)
             if raw == b'' and r.at_eof():
                 raise ConnectionError
             feed(raw)
@@ -360,7 +367,9 @@ class Redis:
     async def _execute(self, cmd_name: str, *args):
         async def call():
             async with self._pool.get_item() as (r, w):
-                w.write(self._proto.make_cmd(cmd_name, args))
+                bytestring = self._proto.make_cmd(cmd_name, args)
+                LOG.debug('write: %s', bytestring)
+                w.write(bytestring)
                 await w.drain()
                 if self._subscriber is None:
                     data = await self._read(r)
@@ -433,6 +442,9 @@ class RedisPool:
         self._timeout = timeout
         self._ssl_ctx = ssl_ctx
         self._pool = Pool(self._factory, size=size)
+
+    def __str__(self):
+        return f'<{self.__class__.__module__}.{self.__class__.__name__} ({self._host}, {self._port}) ({self._pool})>'
 
     async def _factory(self):
         return Redis(self._host, port=self._port, timeout=self._timeout, ssl_ctx=self._ssl_ctx)

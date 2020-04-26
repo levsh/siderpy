@@ -7,7 +7,7 @@ import pytest
 
 import siderpy
 
-siderpy.LOG.setLevel('DEBUG')
+siderpy.LOG.setLevel('INFO')
 
 
 REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
