@@ -6,7 +6,6 @@ import functools
 import logging
 import numbers
 import ssl
-import types
 import typing as tp
 
 
@@ -87,6 +86,7 @@ class Protocol:
             b'$': self._parse_bulk_string(),
             b'*': self._parse_array()}
         for v in sub_parser_map.values():
+            # pylint: disable=stop-iteration-return
             next(v)
         data = None
         while True:
@@ -182,6 +182,7 @@ class Protocol:
                 data = [], remain
                 continue
             sub_parser = self._parse()
+            # pylint: disable=stop-iteration-return
             next(sub_parser)
             while len(out) != number_of_elements:
                 if not remain:
@@ -354,6 +355,7 @@ class Redis:
                                              ssl=self._ssl_ctx,
                                              ssl_handshake_timeout=handshake_timeout)
 
+    # pylint: disable=unused-argument
     def _on_connection_create(self, conn: tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]):
         if self._subscriber:
             self._subscriber.cancel()
@@ -455,8 +457,10 @@ class RedisPool:
         redis = await asyncio.wait_for(self._pool.get(), self._timeout)
         try:
             yield redis
+            # pylint: disable=protected-access
             if redis._subscriber:
                 try:
+                    # pylint: disable=protected-access
                     await asyncio.wait_for(asyncio.wait({redis._subscriber}), self._timeout)
                 except asyncio.TimeoutError:
                     raise RedisError('Returning into pool instance with active pub/sub')
