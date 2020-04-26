@@ -12,7 +12,7 @@ siderpy.LOG.setLevel('DEBUG')
 
 REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
 REDIS_PORT = os.environ.get('REDIS_PORT', 6379)
-USE_SSL = os.environ.get('SIDERPY_USE_SSL')
+TESTS_USE_SSL = os.environ.get('TESTS_USE_SSL')
 
 
 @pytest.fixture
@@ -246,7 +246,7 @@ def event_loop(scope='session'):
 @pytest.fixture()
 def redis():
     ssl_ctx = None
-    if USE_SSL:
+    if TESTS_USE_SSL:
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
@@ -266,7 +266,7 @@ async def prepare(redis):
 @pytest.fixture()
 def pool():
     ssl_ctx = None
-    if USE_SSL:
+    if TESTS_USE_SSL:
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
@@ -280,7 +280,7 @@ def pool():
 @pytest.fixture()
 async def aio_redis():
     ssl_ctx = None
-    if USE_SSL:
+    if TESTS_USE_SSL:
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))

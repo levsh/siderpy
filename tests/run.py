@@ -63,7 +63,7 @@ class Test:
 
     @pytest.mark.parametrize('test_image', ['siderpy_tests_3.7', 'siderpy_tests_3.8'])
     @pytest.mark.parametrize('env_hiredis', [[], ['SIDERPY_DISABLE_HIREDIS=1']])
-    @pytest.mark.parametrize('env_use_ssl', [[], ['SIDERPY_USE_SSL=1']])
+    @pytest.mark.parametrize('env_use_ssl', [[], ['TESTS_USE_SSL=1']])
     def test(self, redis, container_executor, test_image, env_hiredis, env_use_ssl):
         env_redis = ['REDIS_HOST=redis', 'REDIS_PORT=6379']
         links = {redis.id: 'redis'}
@@ -77,7 +77,7 @@ class Test:
             links.update({haproxy.id: 'haproxy'})
         container = container_executor.run_wait_exit(
                 test_image,
-                command='pytest --timeout=30 -s -v --durations=5 /opt/siderpy/tests/tests.py',
+                command='pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py',
                 environment=env_redis + env_hiredis + env_use_ssl,
                 links=links)
         print(container.logs().decode())

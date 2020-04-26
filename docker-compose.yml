@@ -33,9 +33,9 @@ services:
     environment:
       - REDIS_HOST=haproxy
       - REDIS_PORT=6379
-      - SIDERPY_USE_SSL=1
+      - TESTS_USE_SSL=1
     depends_on:
       - "redis"
       - "haproxy"
     command:
-      pytest --timeout=15 -s -v --durations=0 /opt/siderpy/tests/tests.py
+      pytest --timeout=15 -sv --durations=0 /opt/siderpy/tests/tests.py
