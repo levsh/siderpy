@@ -1,25 +1,22 @@
-SiderPy
-=======
+# SiderPy
 
 Minimalistic Python asyncio Redis client library
 
 **master** ![CI](https://github.com/levsh/siderpy/workflows/CI/badge.svg)
 
-Installation
-------------
+## Installation
 
+hiredis support
+```bash
+    pip install git+https://github.com/levsh/siderpy.git#egg=siderpy[hiredis]
+```
+
+or pure python
 ```bash
   $ pip install git+https://github.com/levsh/siderpy.git
 ```
-or
-```bash
-  $ git clone https://github.com/levsh/siderpy.git
-  $ cd siderpy
-  $ python setup.py install
-```
 
-Examples
---------
+## Examples
 
 ```python
   import siderpy
