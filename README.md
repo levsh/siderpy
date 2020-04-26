@@ -3,7 +3,7 @@ SiderPy
 
 Minimalistic Python asyncio Redis client library
 
-![CI](https://github.com/levsh/siderpy/workflows/CI/badge.svg)
+**master** ![CI](https://github.com/levsh/siderpy/workflows/CI/badge.svg)
 
 Installation
 ------------
