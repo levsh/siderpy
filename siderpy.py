@@ -253,77 +253,10 @@ class Pool:
                 func(item)
 
 
-class Executor:
-
-    __slots__ = ['proto', 'cmd_bytestrings']
-
-    def __init__(self):
-        self.proto = Protocol()
-        self.cmd_bytestrings = []
-
-    async def read(self, conn: tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]) -> tp.List[bytes]:
-        out = []
-        proto = self.proto
-        feed = proto.feed
-        gets = proto.gets
-        has_data = proto.has_data
-        while True:
-            raw = await conn[0].read(1024)
-            if raw == b'' and conn[0].at_eof():
-                raise ConnectionError
-            feed(raw)
-            data = None
-            while True:
-                data = gets()
-                if data is False:
-                    break
-                out.append(data)
-                if not has_data():
-                    return out
-            if not has_data():
-                return out
-
-    def append(self, cmd_name: str, args: tuple):
-        self.cmd_bytestrings.append(self.proto.make_cmd(cmd_name, args))
-
-    async def execute_buf(self, conn: tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]):
-        cmd_count = len(self.cmd_bytestrings)
-        cmd_bytestring = b''.join(self.cmd_bytestrings)
-        conn[1].write(cmd_bytestring)
-        self.cmd_bytestrings = []
-        await conn[1].drain()
-        data = []
-        while len(data) < cmd_count:
-            data += await self.read(conn)
-        if len(data) == 1:
-            data = data[0]
-        if isinstance(data, RedisError):
-            raise data
-        return data
-
-    async def execute(self,
-                      conn: tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter],
-                      cmd_name: str,
-                      args: tuple,
-                      read: bool=True):
-        cmd_bytestring = self.proto.make_cmd(cmd_name, args)
-        conn[1].write(cmd_bytestring)
-        self.cmd_bytestrings = []
-        await conn[1].drain()
-        if not read:
-            return
-        data = await self.read(conn)
-        if len(data) == 1:
-            data = data[0]
-        if isinstance(data, RedisError):
-            raise data
-        return data
-
-
 class Redis:
 
-    __slots__ = ['_host', '_port', '_timeout', '_ssl_ctx', '_pool', '_executor', '_pipeline',
-                 '_subscriber', '_subscriber_cb', '_subscriber_channels']
+    __slots__ = ['_host', '_port', '_timeout', '_ssl_ctx', '_pool', '_proto', '_pipeline',
+                 '_buf', '_subscriber', '_subscriber_cb', '_subscriber_channels']
 
     def __init__(self,
                  host: str,
@@ -337,14 +270,51 @@ class Redis:
         self._pool = Pool(self._create_connection, size=1,
                           test=lambda conn: not conn[1].is_closing(),
                           on_create=self._on_connection_create)
-        self._executor = Executor()
+        self._proto = Protocol()
         self._pipeline = False
+        self._buf = []
         self._subscriber = None
         self._subscriber_cb = None
         self._subscriber_channels = set()
 
     def close_connection(self):
         self._pool.close(lambda conn: conn[1].close())
+
+    def pipeline_on(self):
+        if self._subscriber:
+            raise RedisError('Client in subscribe mode')
+        self._pipeline = True
+
+    def pipeline_off(self):
+        self._pipeline = False
+
+    @contextlib.contextmanager
+    def pipeline(self):
+        self._pipeline = True
+        try:
+            yield
+        finally:
+            self._pipeline = False
+
+    async def pipeline_execute(self):
+        if self._subscriber:
+            raise RedisError('Client in subscribe mode')
+        async with self._pool.get_item(timeout=self._timeout) as (r, w):
+            cmd_count = len(self._buf)
+            w.write(b''.join(self._buf))
+            await w.drain()
+            data = []
+            while len(data) < cmd_count:
+                data += await self._read(r)
+            self._buf = []
+            if len(data) == 1:
+                data = data[0]
+            if isinstance(data, RedisError):
+                raise data
+            return data
+
+    def pipeline_clear(self):
+        self._buf.clear()
 
     async def _create_connection(self) -> tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         handshake_timeout = None
@@ -363,30 +333,44 @@ class Redis:
             self._subscriber_cb = None
             self._subscriber_channels = set()
 
-    @contextlib.asynccontextmanager
-    async def pipeline(self):
-        self._pipeline = True
-        resp = []
-        try:
-            yield resp
-        finally:
-            self._pipeline = False
-
-        async with self._pool.get_item(timeout=self._timeout) as conn:
-            resp.extend(await self._executor.execute_buf(conn))
+    async def _read(self, r: asyncio.StreamReader) -> tp.List[bytes]:
+        out = []
+        proto = self._proto
+        feed = proto.feed
+        gets = proto.gets
+        has_data = proto.has_data
+        while True:
+            raw = await r.read(1024)
+            if raw == b'' and r.at_eof():
+                raise ConnectionError
+            feed(raw)
+            data = None
+            while True:
+                data = gets()
+                if data is False:
+                    break
+                out.append(data)
+                if not has_data():
+                    return out
+            if not has_data():
+                return out
 
     async def _execute(self, cmd_name: str, *args):
-        if self._pipeline:
-            self._executor.append(cmd_name, args)
-            return
-
         async def call():
-            async with self._pool.get_item() as conn:
-                return await self._executor.execute(conn, cmd_name, args, read=self._subscriber is None)
+            async with self._pool.get_item() as (r, w):
+                w.write(self._proto.make_cmd(cmd_name, args))
+                await w.drain()
+                if self._subscriber is None:
+                    data = await self._read(r)
+                    if len(data) == 1:
+                        data = data[0]
+                    if isinstance(data, RedisError):
+                        raise data
+                    return data
+        if self._pipeline:
+            self._buf.append(self._proto.make_cmd(cmd_name, args))
+            return
         return await asyncio.wait_for(call(), self._timeout)
-
-        # async with self._pool.get_item() as conn:
-        #     return await self._executor.execute(conn, cmd_name, args, read=self._subscriber is None)
 
     async def _subscribe(self, cmd_name: str, callback: tp.Coroutine, *channels):
         if not callable(callback):
@@ -400,7 +384,7 @@ class Redis:
 
             async def subscriber():
                 while True:
-                    messages = await self._executor.read(conn)
+                    messages = await self._read(conn[0])
                     for message in messages:
                         if message[0] in {b'subscribe', b'psubscribe'}:
                             self._subscriber_channels.add(message[1].decode())
@@ -441,13 +425,13 @@ class RedisPool:
                  host: str,
                  port: int=REDIS_PORT,
                  timeout: float=CONN_TIMEOUT,
-                 pool_size: int=POOL_SIZE,
+                 size: int=POOL_SIZE,
                  ssl_ctx: ssl.SSLContext=None):
         self._host = host
         self._port = port
         self._timeout = timeout
         self._ssl_ctx = ssl_ctx
-        self._pool = Pool(self._factory, size=pool_size)
+        self._pool = Pool(self._factory, size=size)
 
     async def _factory(self):
         return Redis(self._host, port=self._port, timeout=self._timeout, ssl_ctx=self._ssl_ctx)

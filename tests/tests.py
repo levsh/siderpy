@@ -270,7 +270,7 @@ def pool():
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
-    pool = siderpy.RedisPool(REDIS_HOST, port=REDIS_PORT, ssl_ctx=ssl_ctx, pool_size=4)
+    pool = siderpy.RedisPool(REDIS_HOST, port=REDIS_PORT, ssl_ctx=ssl_ctx, size=4)
     try:
         yield pool
     finally:
@@ -396,29 +396,32 @@ class TestRedis:
         assert sorted(resp[2]) == [b'key1', b'key2']
 
     async def test_pipeline(self, event_loop, prepare, redis):
-        async with redis.pipeline() as resp:
+        with redis.pipeline():
             await redis.set('key', 'value')
             await redis.ping()
             await redis.ping()
             await redis.get('key')
+            resp = await redis.pipeline_execute()
         assert resp == [b'OK', b'PONG', b'PONG', b'value']
 
     async def test_pool_pipeline(self, event_loop, prepare, pool):
         async with pool.get_one() as redis:
-            async with redis.pipeline() as resp:
+            with redis.pipeline():
                 await redis.set('key', 'value')
                 await redis.ping()
                 await redis.ping()
                 await redis.get('key')
+                resp = await redis.pipeline_execute()
         assert resp == [b'OK', b'PONG', b'PONG', b'value']
 
     async def test_pipeline_multi(self, event_loop, prepare, redis):
-        async with redis.pipeline() as resp:
+        with redis.pipeline():
             await redis.multi()
             await redis.set('key1', 'value1')
             await redis.set('key2', 'value2')
             await redis.keys('*')
             await redis.execute()
+            resp = await redis.pipeline_execute()
         flag1 = resp == [b'OK', b'QUEUED', b'QUEUED', b'QUEUED', [b'OK', b'OK', [b'key1', b'key2']]]
         flag2 = resp == [b'OK', b'QUEUED', b'QUEUED', b'QUEUED', [b'OK', b'OK', [b'key2', b'key1']]]
         assert flag1 or flag2
@@ -509,7 +512,7 @@ class TestRedis:
         assert messages == [b'message1', b'message1', b'message2']
 
 
-class TestBenchmarks:
+class TestBenchmark:
 
     count = 1000
 

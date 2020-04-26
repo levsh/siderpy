@@ -64,7 +64,7 @@ class Test:
     @pytest.mark.parametrize('test_image', ['siderpy_tests_3.7', 'siderpy_tests_3.8'])
     @pytest.mark.parametrize('env_hiredis', [[], ['SIDERPY_DISABLE_HIREDIS=1']])
     @pytest.mark.parametrize('env_use_ssl', [[], ['TESTS_USE_SSL=1']])
-    def test(self, redis, container_executor, test_image, env_hiredis, env_use_ssl):
+    def test_main(self, redis, container_executor, test_image, env_hiredis, env_use_ssl):
         env_redis = ['REDIS_HOST=redis', 'REDIS_PORT=6379']
         links = {redis.id: 'redis'}
         if env_use_ssl:
@@ -75,9 +75,34 @@ class Test:
                     environment=['REDIS_HOST=redis', 'REDIS_PORT=6379'])
             env_redis = ['REDIS_HOST=haproxy', 'REDIS_PORT=6379']
             links.update({haproxy.id: 'haproxy'})
+        command = ('pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py'
+                   ' -k TestRedisProtocol -k TestRedis')
         container = container_executor.run_wait_exit(
                 test_image,
-                command='pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py',
+                command=command,
+                environment=env_redis + env_hiredis + env_use_ssl,
+                links=links)
+        print(container.logs().decode())
+        data = container.wait()
+        assert data['StatusCode'] == 0
+
+    @pytest.mark.parametrize('env_hiredis', [[], ['SIDERPY_DISABLE_HIREDIS=1']])
+    @pytest.mark.parametrize('env_use_ssl', [[], ['TESTS_USE_SSL=1']])
+    def test_benchmark(self, redis, container_executor, env_hiredis, env_use_ssl):
+        env_redis = ['REDIS_HOST=redis', 'REDIS_PORT=6379']
+        links = {redis.id: 'redis'}
+        if env_use_ssl:
+            haproxy = container_executor.run_wait_up(
+                    'haproxy:latest',
+                    command='haproxy -f /opt/siderpy/tests/haproxy.cfg',
+                    links={redis.id: 'redis'},
+                    environment=['REDIS_HOST=redis', 'REDIS_PORT=6379'])
+            env_redis = ['REDIS_HOST=haproxy', 'REDIS_PORT=6379']
+            links.update({haproxy.id: 'haproxy'})
+        command = 'pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py -k TestBenchmark'
+        container = container_executor.run_wait_exit(
+                'siderpy_tests_3.8',
+                command=command,
                 environment=env_redis + env_hiredis + env_use_ssl,
                 links=links)
         print(container.logs().decode())
