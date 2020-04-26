@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ ci ]
   pull_request:
-    branches: [ master ]
+    branches: [ ci ]
 
 jobs:
   tests:
@@ -24,6 +24,10 @@ jobs:
         docker pull haproxy:latest
     - name: Install requirements
       run: |
+        pip install pylint
         pip install -r tests/requirements.txt
     - name: Run pytest
       run: pytest --timeout=30 -sv --durations=5 tests/run.py
+    - name: Linter
+      run: |
+        pylint siderpy.py
