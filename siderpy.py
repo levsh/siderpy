@@ -23,7 +23,7 @@ LOG.setLevel('INFO')
 logging.basicConfig()
 
 REDIS_PORT = 6379
-CONN_TIMEOUT = 30
+CONNECT_TIMEOUT = 30
 POOL_SIZE = 4
 
 
@@ -32,6 +32,8 @@ class RedisError(Exception):
 
 
 class Protocol:
+
+    __slots__ = ['_reader', '_unparsed', '_parser', '_ready', 'feed', 'gets', 'has_data']
 
     def __init__(self):
         if hiredis is None:
@@ -199,6 +201,8 @@ class Protocol:
 
 class Pool:
 
+    __slots__ = ['factory', 'size', 'test', 'on_create', '_queue', '_used']
+
     def __init__(self, factory: tp.Coroutine, size: int=None, test: tp.Callable=None, on_create: tp.Callable=None):
         self.factory = factory
         if size is None:
@@ -226,9 +230,9 @@ class Pool:
                     item = await self.factory()
                     if callable(self.on_create):
                         self.on_create(item)
-                except Exception:
+                except Exception as e:
                     self._queue.put_nowait(None)
-                    raise
+                    raise e
             self._used.add(item)
             return item
         return await asyncio.wait_for(call(), timeout)
@@ -257,17 +261,27 @@ class Pool:
 
 class Redis:
 
-    __slots__ = ['_host', '_port', '_timeout', '_ssl_ctx', '_pool', '_proto', '_pipeline',
-                 '_buf', '_subscriber', '_subscriber_cb', '_subscriber_channels']
+    __slots__ = ['_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx',
+                 '_pool', '_proto', '_pipeline', '_buf', '_subscriber', '_subscriber_cb', '_subscriber_channels']
 
-    def __init__(self, host: str, port: int=None, timeout: float=None, ssl_ctx: ssl.SSLContext=None):
+    def __init__(self,
+                 host: str,
+                 port: int=None,
+                 connect_timeout: float=None,
+                 timeout: tp.Union[float, tuple, list]=None,
+                 ssl_ctx: ssl.SSLContext=None):
         self._host = host
         if port is None:
             port = REDIS_PORT
         self._port = port
-        if timeout is None:
-            timeout = CONN_TIMEOUT
-        self._timeout = timeout
+        if connect_timeout is None:
+            connect_timeout = CONNECT_TIMEOUT
+        self._connect_timeout = connect_timeout
+        if isinstance(timeout, (tuple, list)):
+            self._read_timeout, self._write_timeout = timeout
+        else:
+            self._read_timeout = timeout
+            self._write_timeout = timeout
         self._ssl_ctx = ssl_ctx
         self._pool = Pool(self._create_connection, size=1,
                           test=lambda conn: not conn[1].is_closing(),
@@ -307,19 +321,9 @@ class Redis:
     async def pipeline_execute(self):
         if self._subscriber:
             raise RedisError('Client in subscribe mode')
-        async with self._pool.get_item(timeout=self._timeout) as (r, w):
-            cmd_count = len(self._buf)
-            w.write(b''.join(self._buf))
-            await w.drain()
-            data = []
-            while len(data) < cmd_count:
-                data += await self._read(r)
-            self._buf = []
-            if len(data) == 1:
-                data = data[0]
-            if isinstance(data, RedisError):
-                raise data
-            return data
+        res = await self._execute_bytestring(b''.join(self._buf))
+        self._buf = []
+        return res
 
     def pipeline_clear(self):
         self._buf.clear()
@@ -327,7 +331,7 @@ class Redis:
     async def _create_connection(self) -> tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         handshake_timeout = None
         if self._ssl_ctx:
-            handshake_timeout = self._timeout
+            handshake_timeout = self._connect_timeout
         return await asyncio.open_connection(host=self._host,
                                              port=self._port,
                                              ssl=self._ssl_ctx,
@@ -364,24 +368,31 @@ class Redis:
             if not has_data():
                 return out
 
-    async def _execute(self, cmd_name: str, *args):
-        async def call():
-            async with self._pool.get_item() as (r, w):
-                bytestring = self._proto.make_cmd(cmd_name, args)
-                LOG.debug('write: %s', bytestring)
+    async def _execute_bytestring(self, bytestring: tp.Union[bytearray, bytes]):
+        async with self._pool.get_item(timeout=self._connect_timeout) as (r, w):
+            LOG.debug('write: %s', bytestring)
+            try:
                 w.write(bytestring)
-                await w.drain()
-                if self._subscriber is None:
-                    data = await self._read(r)
-                    if len(data) == 1:
-                        data = data[0]
-                    if isinstance(data, RedisError):
-                        raise data
-                    return data
-        if self._pipeline:
-            self._buf.append(self._proto.make_cmd(cmd_name, args))
-            return
-        return await asyncio.wait_for(call(), self._timeout)
+                await asyncio.wait_for(w.drain(), self._write_timeout)
+                if self._subscriber:
+                    return
+                data = await asyncio.wait_for(self._read(r), self._read_timeout)
+            except Exception as e:
+                LOG.warning('Closing connection %s', w)
+                w.close()
+                await w.wait_closed()
+                raise e
+            if len(data) == 1:
+                data = data[0]
+            if isinstance(data, RedisError):
+                raise data
+            return data
+
+    async def _execute(self, cmd_name: str, *args):
+        bytestring = self._proto.make_cmd(cmd_name, args)
+        if not self._pipeline:
+            return await self._execute_bytestring(bytestring)
+        self._buf.append(bytestring)
 
     async def _subscribe(self, cmd_name: str, callback: tp.Coroutine, *channels):
         if not callable(callback):
@@ -432,14 +443,27 @@ class Redis:
 
 class RedisPool:
 
-    def __init__(self, host: str, port: int=None, timeout: float=None, size: int=None, ssl_ctx: ssl.SSLContext=None):
+    __slots__ = ['_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx', '_pool']
+
+    def __init__(self,
+                 host: str,
+                 port: int=None,
+                 connect_timeout: float=None,
+                 timeout: tp.Union[float, tuple, list]=None,
+                 size: int=None,
+                 ssl_ctx: ssl.SSLContext=None):
         self._host = host
         if port is None:
             port = REDIS_PORT
         self._port = port
-        if timeout is None:
-            timeout = CONN_TIMEOUT
-        self._timeout = timeout
+        if connect_timeout is None:
+            connect_timeout = CONNECT_TIMEOUT
+        self._connect_timeout = connect_timeout
+        if isinstance(timeout, (tuple, list)):
+            self._read_timeout, self._write_timeout = timeout
+        else:
+            self._read_timeout = timeout
+            self._write_timeout = timeout
         self._ssl_ctx = ssl_ctx
         self._pool = Pool(self._factory, size=size)
 
@@ -447,31 +471,35 @@ class RedisPool:
         return f'<{self.__class__.__module__}.{self.__class__.__name__} ({self._host}, {self._port}) ({self._pool})>'
 
     async def _factory(self):
-        return Redis(self._host, port=self._port, timeout=self._timeout, ssl_ctx=self._ssl_ctx)
+        return Redis(self._host,
+                     port=self._port,
+                     connect_timeout=self._connect_timeout,
+                     timeout=(self._read_timeout, self._write_timeout),
+                     ssl_ctx=self._ssl_ctx)
 
     @contextlib.asynccontextmanager
-    async def get_one(self):
-        redis = await asyncio.wait_for(self._pool.get(), self._timeout)
+    async def get_one(self, timeout: float=None):
+        if timeout is None:
+            timeout = self._connect_timeout
+        redis = await self._pool.get(timeout=timeout)
         try:
             yield redis
+        finally:
             # pylint: disable=protected-access
             if redis._subscriber:
                 try:
                     # pylint: disable=protected-access
-                    await asyncio.wait_for(asyncio.wait({redis._subscriber}), self._timeout)
+                    await asyncio.wait_for(asyncio.wait({redis._subscriber}), timeout)
                 except asyncio.TimeoutError:
                     raise RedisError('Returning into pool instance with active pub/sub')
-        finally:
             self._pool.put(redis)
 
     def close_connections(self):
         self._pool.close(lambda redis: redis.close_connection())
 
     async def _execute(self, attr_name: str, *args):
-        async def call():
-            async with self._pool.get_item() as redis:
-                return await getattr(redis, attr_name)(*args)
-        return await asyncio.wait_for(call(), self._timeout)
+        async with self._pool.get_item(timeout=self._connect_timeout) as redis:
+            return await getattr(redis, attr_name)(*args)
 
     def __getattr__(self, attr_name: str):
         return functools.partial(self._execute, attr_name)
