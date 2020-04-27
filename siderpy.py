@@ -1,3 +1,6 @@
+__all__ = ['SiderPyError', 'RedisError', 'LOG', 'REDIS_PORT', 'CONNECT_TIMEOUT', 'POOL_SIZE', 'Redis', 'RedisPool']
+__version__ = '0.1'
+
 import asyncio
 import collections
 import contextlib
@@ -200,7 +203,7 @@ class Protocol:
             out = []
 
 
-class Pool:
+class _Pool:
 
     __slots__ = ('_factory', '_size', '_test', '_on_create', '_queue', '_used')
 
@@ -284,10 +287,10 @@ class Redis:
             self._read_timeout = timeout
             self._write_timeout = timeout
         self._ssl_ctx = ssl_ctx
-        self._pool = Pool(self._create_connection,
-                          size=1,
-                          test=lambda conn: not conn[1].is_closing(),
-                          on_create=self._on_connection_create)
+        self._pool = _Pool(self._create_connection,
+                           size=1,
+                           test=lambda conn: not conn[1].is_closing(),
+                           on_create=self._on_connection_create)
         self._proto = Protocol()
         self._pipeline = False
         self._buf = []
@@ -464,7 +467,7 @@ class RedisPool:
             self._read_timeout = timeout
             self._write_timeout = timeout
         self._ssl_ctx = ssl_ctx
-        self._pool = Pool(self._factory, size=size)
+        self._pool = _Pool(self._factory, size=size)
 
     def __str__(self):
         return '<{}.{} ({}, {})) {} [{}]>'.format(

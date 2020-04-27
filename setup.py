@@ -2,6 +2,8 @@ from setuptools import setup, find_packages
 
 import sys
 
+from siderpy import __version__
+
 
 if sys.version_info < (3, 7):
     sys.exit('Sorry, Python < 3.7 is not supported')
@@ -9,7 +11,7 @@ if sys.version_info < (3, 7):
 
 setup(
     name='siderpy',
-    version='0.1',
+    version=__version__,
     author='Roma Koshel',
     author_email='roma.koshel@gmail.com',
     license='MIT',
