@@ -37,7 +37,7 @@ class RedisError(SiderPyError):
 
 class Protocol:
 
-    __slots__ = ['_reader', '_unparsed', '_parser', '_ready', 'feed', 'gets', 'has_data']
+    __slots__ = ('_reader', '_unparsed', '_parser', '_ready', 'feed', 'gets', 'has_data')
 
     def __init__(self):
         if hiredis is None:
@@ -203,9 +203,13 @@ class Protocol:
 
 class Pool:
 
-    __slots__ = ['factory', 'size', 'test', 'on_create', '_queue', '_used']
+    __slots__ = ('factory', 'size', 'test', 'on_create', '_queue', '_used')
 
-    def __init__(self, factory: tp.Coroutine, size: int=None, test: tp.Callable=None, on_create: tp.Callable=None):
+    def __init__(self,
+                 factory: tp.Coroutine,
+                 size: int = None,
+                 test: tp.Callable = None,
+                 on_create: tp.Callable = None):
         self.factory = factory
         if size is None:
             size = POOL_SIZE
@@ -224,7 +228,7 @@ class Pool:
     def __repr__(self):
         return self.__str__()
 
-    async def get(self, timeout: float=None):
+    async def get(self, timeout: float = None):
         async def call():
             item = await self._queue.get()
             if item is None or self.test and not self.test(item):
@@ -247,7 +251,7 @@ class Pool:
             self._queue.put_nowait(item)
 
     @contextlib.asynccontextmanager
-    async def get_item(self, timeout: float=None):
+    async def get_item(self, timeout: float = None):
         item = await self.get(timeout=timeout)
         try:
             yield item
@@ -265,15 +269,15 @@ class Pool:
 
 class Redis:
 
-    __slots__ = ['_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx',
-                 '_pool', '_proto', '_pipeline', '_buf', '_subscriber', '_subscriber_cb', '_subscriber_channels']
+    __slots__ = ('_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx',
+                 '_pool', '_proto', '_pipeline', '_buf', '_subscriber', '_subscriber_cb', '_subscriber_channels')
 
     def __init__(self,
                  host: str,
-                 port: int=None,
-                 connect_timeout: float=None,
-                 timeout: tp.Union[float, tuple, list]=None,
-                 ssl_ctx: ssl.SSLContext=None):
+                 port: int = None,
+                 connect_timeout: float = None,
+                 timeout: tp.Union[float, tuple, list] = None,
+                 ssl_ctx: ssl.SSLContext = None):
         self._host = host
         if port is None:
             port = REDIS_PORT
@@ -448,15 +452,15 @@ class Redis:
 
 class RedisPool:
 
-    __slots__ = ['_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx', '_pool']
+    __slots__ = ('_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx', '_pool')
 
     def __init__(self,
                  host: str,
-                 port: int=None,
-                 connect_timeout: float=None,
-                 timeout: tp.Union[float, tuple, list]=None,
-                 size: int=None,
-                 ssl_ctx: ssl.SSLContext=None):
+                 port: int = None,
+                 connect_timeout: float = None,
+                 timeout: tp.Union[float, tuple, list] = None,
+                 size: int = None,
+                 ssl_ctx: ssl.SSLContext = None):
         self._host = host
         if port is None:
             port = REDIS_PORT
@@ -483,7 +487,7 @@ class RedisPool:
                      ssl_ctx=self._ssl_ctx)
 
     @contextlib.asynccontextmanager
-    async def get_one(self, timeout: float=None):
+    async def get_one(self, timeout: float = None):
         if timeout is None:
             timeout = self._connect_timeout
         redis = await self._pool.get(timeout=timeout)

@@ -24,10 +24,11 @@ jobs:
         docker pull haproxy:latest
     - name: Install requirements
       run: |
-        pip install pylint
+        pip install pylint flake8
         pip install -r tests/requirements.txt
     - name: Run pytest
       run: pytest --timeout=30 -svv --durations=5 tests/run.py
     - name: Linter
       run: |
         pylint siderpy.py
+        flake8 siderpy.py
