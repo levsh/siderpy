@@ -45,9 +45,10 @@ Pipeline
   import siderpy
   
   redis = siderpy.Redis('172.0.0.1')
-  async with redis.pipeline() as response:
-    await redis.ping()
-    for key, value in {'key1': 'value1', 'key2': 'value2'}.items():
-        await redis.set(key, value)
-  print(response)
+  async with redis.pipeline():
+      await redis.ping()
+      for key, value in {'key1': 'value1', 'key2': 'value2'}.items():
+          await redis.set(key, value)
+      response = await redis.pipeline_execute()
+      print(response)
 ```
