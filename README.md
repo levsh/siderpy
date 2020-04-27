@@ -102,3 +102,28 @@ Out[3]:
 
 In [4]: redis.close_connection()
 ```
+
+Pool
+```python
+
+In [1]: import siderpy                                                                                                                                                                                
+
+In [2]: pool = siderpy.RedisPool('localhost', port=6379, size=10)                                                                                                                                     
+
+In [3]: await pool.ping()                                                                                                                                                                             
+Out[3]: b'PONG'
+
+In [4]: await pool.set('key', 'value')                                                                                                                                                                
+Out[4]: b'OK'
+
+In [5]: await pool.get('key')                                                                                                                                                                         
+Out[5]: b'value'
+
+In [6]: # or                                                                                                                                                                                          
+
+In [7]: async with pool.get_redis() as redis: 
+   ...:     print(await redis.ping())                                                                                                                                                                 
+b'PONG'
+
+In [8]: pool.close_connections()
+```
