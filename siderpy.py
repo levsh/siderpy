@@ -56,9 +56,8 @@ class Protocol:
             self.has_data = self._reader.has_data
 
     def __str__(self):
-        if self._reader:
-            return f'<{self.__class__.__module__}.{self.__class__.__name__} {self._reader} {hex(id(self))}>'
-        return f'<{self.__class__.__module__}.{self.__class__.__name__} {hex(id(self))}>'
+        return '<{}.{} hiredis={} [{}]>'.format(
+                self.__class__.__module__, self.__class__.__name__, bool(self._reader), hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -203,27 +202,25 @@ class Protocol:
 
 class Pool:
 
-    __slots__ = ('factory', 'size', 'test', 'on_create', '_queue', '_used')
+    __slots__ = ('_factory', '_size', '_test', '_on_create', '_queue', '_used')
 
     def __init__(self,
                  factory: tp.Coroutine,
-                 size: int = None,
+                 size: int = POOL_SIZE,
                  test: tp.Callable = None,
                  on_create: tp.Callable = None):
-        self.factory = factory
-        if size is None:
-            size = POOL_SIZE
-        self.size = size
-        self.test = test
-        self.on_create = on_create
-        self._queue = asyncio.LifoQueue(maxsize=self.size)
+        self._factory = factory
+        self._size = size
+        self._test = test
+        self._on_create = on_create
+        self._queue = asyncio.LifoQueue(maxsize=self._size)
         self._used = set()
-        for _ in range(self.size):
+        for _ in range(self._size):
             self._queue.put_nowait(None)
 
     def __str__(self):
-        return '<{}.{} size {}, available {} {}>'.format(
-                self.__class__.__module__, self.__class__.__name__, self.size, self._queue.qsize(), hex(id(self)))
+        return '<{}.{} size {}, available {} [{}]>'.format(
+                self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -231,11 +228,11 @@ class Pool:
     async def get(self, timeout: float = None):
         async def call():
             item = await self._queue.get()
-            if item is None or self.test and not self.test(item):
+            if item is None or self._test and not self._test(item):
                 try:
-                    item = await self.factory()
-                    if callable(self.on_create):
-                        self.on_create(item)
+                    item = await self._factory()
+                    if callable(self._on_create):
+                        self._on_create(item)
                 except (asyncio.CancelledError, Exception) as e:
                     self._queue.put_nowait(None)
                     raise e
@@ -274,16 +271,12 @@ class Redis:
 
     def __init__(self,
                  host: str,
-                 port: int = None,
-                 connect_timeout: float = None,
+                 port: int = REDIS_PORT,
+                 connect_timeout: float = CONNECT_TIMEOUT,
                  timeout: tp.Union[float, tuple, list] = None,
                  ssl_ctx: ssl.SSLContext = None):
         self._host = host
-        if port is None:
-            port = REDIS_PORT
         self._port = port
-        if connect_timeout is None:
-            connect_timeout = CONNECT_TIMEOUT
         self._connect_timeout = connect_timeout
         if isinstance(timeout, (tuple, list)):
             self._read_timeout, self._write_timeout = timeout
@@ -303,7 +296,8 @@ class Redis:
         self._subscriber_channels = set()
 
     def __str__(self):
-        return f'<{self.__class__.__module__}.{self.__class__.__name__} ({self._host}, {self._port}) {hex(id(self))}>'
+        return '<{}.{} ({}, {}) [{}]>'.format(
+                self.__class__.__module__, self.__class__.__name__, self._host, self._port, hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -456,17 +450,13 @@ class RedisPool:
 
     def __init__(self,
                  host: str,
-                 port: int = None,
-                 connect_timeout: float = None,
+                 port: int = REDIS_PORT,
+                 connect_timeout: float = CONNECT_TIMEOUT,
                  timeout: tp.Union[float, tuple, list] = None,
                  size: int = None,
                  ssl_ctx: ssl.SSLContext = None):
         self._host = host
-        if port is None:
-            port = REDIS_PORT
         self._port = port
-        if connect_timeout is None:
-            connect_timeout = CONNECT_TIMEOUT
         self._connect_timeout = connect_timeout
         if isinstance(timeout, (tuple, list)):
             self._read_timeout, self._write_timeout = timeout
@@ -477,7 +467,8 @@ class RedisPool:
         self._pool = Pool(self._factory, size=size)
 
     def __str__(self):
-        return f'<{self.__class__.__module__}.{self.__class__.__name__} ({self._host}, {self._port}) ({self._pool})>'
+        return '<{}.{} ({}, {})) {} [{}]>'.format(
+                self.__class__.__module__, self.__class__.__name__, self._host, self._port, self._pool, hex(id(self)))
 
     async def _factory(self):
         return Redis(self._host,
@@ -487,19 +478,18 @@ class RedisPool:
                      ssl_ctx=self._ssl_ctx)
 
     @contextlib.asynccontextmanager
-    async def get_one(self, timeout: float = None):
-        if timeout is None:
-            timeout = self._connect_timeout
+    async def get_redis(self, timeout: float = None):
         redis = await self._pool.get(timeout=timeout)
         try:
             yield redis
-        finally:
             if redis._subscriber:  # pylint: disable=protected-access
                 try:
                     # pylint: disable=protected-access
                     await asyncio.wait_for(asyncio.wait({redis._subscriber}), timeout)
                 except asyncio.TimeoutError:
-                    raise SiderPyError('Returning into pool instance with active pub/sub')
+                    redis.close_connection()
+                    raise SiderPyError('Closising Redis instance because active pub/sub')
+        finally:
             self._pool.put(redis)
 
     def close_connections(self):

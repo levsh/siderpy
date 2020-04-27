@@ -385,7 +385,7 @@ class TestRedis:
         assert sorted(resp[2]) == [b'key1', b'key2']
 
     async def test_pool_multi(self, event_loop, prepare, pool):
-        async with pool.get_one() as redis:
+        async with pool.get_redis() as redis:
             await redis.multi()
             await redis.set('key1', 'value1')
             await redis.set('key2', 'value2')
@@ -405,7 +405,7 @@ class TestRedis:
         assert resp == [b'OK', b'PONG', b'PONG', b'value']
 
     async def test_pool_pipeline(self, event_loop, prepare, pool):
-        async with pool.get_one() as redis:
+        async with pool.get_redis() as redis:
             with redis.pipeline():
                 await redis.set('key', 'value')
                 await redis.ping()
@@ -446,12 +446,12 @@ class TestRedis:
             messages.append(message)
 
         async def producer():
-            async with pool.get_one() as redis:
+            async with pool.get_redis() as redis:
                 await redis.publish('channel1', 'message1')
                 await redis.publish('channel1', 'message2')
                 await redis.publish('channel2', 'message3')
 
-        async with pool.get_one() as redis:
+        async with pool.get_redis() as redis:
             await redis.subscribe(consumer, 'channel1', 'channel2')
             await asyncio.wait({asyncio.create_task(producer())})
             await asyncio.sleep(1)
@@ -478,12 +478,12 @@ class TestRedis:
             messages.append(message)
 
         async def producer():
-            async with pool.get_one() as redis:
+            async with pool.get_redis() as redis:
                 await redis.publish('channel1.a', 'message1')
                 await redis.publish('channel1.b', 'message2')
                 await redis.publish('channel2.c', 'message3')
 
-        async with pool.get_one() as redis:
+        async with pool.get_redis() as redis:
             await redis.psubscribe(consumer, 'channel1.*', 'channel2.*')
             await asyncio.wait({asyncio.create_task(producer())})
             await asyncio.sleep(1)
@@ -498,11 +498,11 @@ class TestRedis:
             messages.append(data[-1])
 
         async def producer():
-            async with pool.get_one() as redis:
+            async with pool.get_redis() as redis:
                 await redis.publish('channel1', 'message1')
                 await redis.publish('channel*', 'message2')
 
-        async with pool.get_one() as redis:
+        async with pool.get_redis() as redis:
             await redis.subscribe(consumer, 'channel1')
             await redis.psubscribe(consumer, 'channel*')
             await asyncio.wait({asyncio.create_task(producer())})
