@@ -485,8 +485,7 @@ class RedisPool:
         try:
             yield redis
         finally:
-            # pylint: disable=protected-access
-            if redis._subscriber:
+            if redis._subscriber:  # pylint: disable=protected-access
                 try:
                     # pylint: disable=protected-access
                     await asyncio.wait_for(asyncio.wait({redis._subscriber}), timeout)
