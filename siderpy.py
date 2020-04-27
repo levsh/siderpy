@@ -31,10 +31,12 @@ POOL_SIZE = 4
 
 
 class SiderPyError(Exception):
+    """Base exception"""
     pass
 
 
 class RedisError(SiderPyError):
+    """Redis error Exception"""
     pass
 
 
@@ -60,7 +62,7 @@ class Protocol:
 
     def __str__(self):
         return '<{}.{} hiredis={} [{}]>'.format(
-                self.__class__.__module__, self.__class__.__name__, bool(self._reader), hex(id(self)))
+            self.__class__.__module__, self.__class__.__name__, bool(self._reader), hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -223,7 +225,7 @@ class _Pool:
 
     def __str__(self):
         return '<{}.{} size {}, available {} [{}]>'.format(
-                self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self)))
+            self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -268,6 +270,27 @@ class _Pool:
 
 
 class Redis:
+    """Class representing a single connection to a Redis server.
+    Connection to the server is established automatically during the first request.
+
+    Examples:
+
+        >>> import siderpy
+        >>> pool = siderpy.Redis('localhost', port=6379)
+        >>> await redis.ping()
+        >>> redis.close_connection()
+
+    To select Redis logical database call select method:
+
+        >>> await redis.select(0)
+
+    MULTI/EXEC
+
+        >>> await redis.multi()
+        >>> await redis.set('key', 'value')
+        >>> ...
+        >>> await redis.execute()
+    """
 
     __slots__ = ('_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx',
                  '_pool', '_proto', '_pipeline', '_buf', '_subscriber', '_subscriber_cb', '_subscriber_channels')
@@ -278,6 +301,35 @@ class Redis:
                  connect_timeout: float = CONNECT_TIMEOUT,
                  timeout: tp.Union[float, tuple, list] = None,
                  ssl_ctx: ssl.SSLContext = None):
+        """
+        Args:
+            host (:obj:`str`): Redis server hostname or IP address.
+            port (:obj:`int`, optional): Redis server port.
+            connect_timeout (:obj:`float`, optional): Timeout used to get initialized :py:class:`Redis` instance
+                and as a :obj:`ssl_handshake_timeout` argument for :obj:`asyncio.open_connection` call.
+            timeout (:obj:`float`, optional): Timeout used for read and write operations.
+                It is possibly to specify separately values for read and write.
+
+                Example:
+
+                    >>> Redis('localhost', timeout=(read_timeout, write_timeout))
+
+                If common or read timeout is specified it will affect all
+                Redis blocking read commands such as blpop, etc.
+                For example, this code will raise :obj:`asyncio.TimeoutError` after one second
+                though a timeout of zero for blpop command can be used to block indefinitely.
+
+                    >>> redis = siderpy.Redis('localhost', timeout=1)
+                    >>> await redis.blpop('empty_list', 0)  # asyncio.TimeoutError exception
+                    >>>                                     # will occur here after 1 second
+
+                To avoid this situation set read timeout to :obj:`None`.
+
+                    >>> redis = siderpy.Redis('localhost', timeout=(None, 15))
+                    >>> await redis.blpop('empty_list', 0)  # will block indefinitely
+
+            ssl_ctx (:py:class:`ssl.SSLContext`, optional): SSL context object to enable SSL(TLS).
+        """
         self._host = host
         self._port = port
         self._connect_timeout = connect_timeout
@@ -300,24 +352,49 @@ class Redis:
 
     def __str__(self):
         return '<{}.{} ({}, {}) [{}]>'.format(
-                self.__class__.__module__, self.__class__.__name__, self._host, self._port, hex(id(self)))
+            self.__class__.__module__, self.__class__.__name__, self._host, self._port, hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
 
     def close_connection(self):
+        """Close established connection"""
         self._pool.close(lambda conn: conn[1].close())
 
     def pipeline_on(self):
+        """Enable pipeline mode. In this mode, all commands are saved to the internal pipeline buffer
+        and not executed until the pipe_execute method is invoked directly."""
         if self._subscriber:
             raise SiderPyError('Client in subscribe mode')
         self._pipeline = True
 
     def pipeline_off(self):
+        """Disable pipeline mode"""
         self._pipeline = False
 
     @contextlib.contextmanager
     def pipeline(self):
+        """Pipeline mode contextmanager
+
+        Example:
+
+            >>> with redis.pipeline():
+            >>>     await redis.set('key1', 'value2')
+            >>>     await redis.set('key2', 'value2')
+            >>>     await redis.mget('key1', 'key2')
+            >>> result = await redis.pipeline_execute()
+
+        Also it's possible to resume or execute pipeline later, for example:
+
+            >>> with redis.pipeline():
+            >>>     await redis.set('key1', 'value2')
+            >>> # pause pipeline, do other stuff
+            >>> ...
+            >>> # continue with pipeline
+            >>> with redis.pipeline():
+            >>>     await redis.set('key2', 'value2')
+            >>> result = await redis.pipeline_execute()
+        """
         self._pipeline = True
         try:
             yield
@@ -325,6 +402,7 @@ class Redis:
             self._pipeline = False
 
     async def pipeline_execute(self):
+        """Execute pipeline buffer"""
         if self._subscriber:
             raise SiderPyError('Client in subscribe mode')
         res = await self._execute_bytestring(b''.join(self._buf))
@@ -332,6 +410,7 @@ class Redis:
         return res
 
     def pipeline_clear(self):
+        """Clear internal pipeline buffer"""
         self._buf = []
 
     async def _create_connection(self) -> tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
@@ -442,12 +521,19 @@ class Redis:
         }.get(attr_name, attr_name)
         if cmd_name in {'subscribe', 'psubscribe'}:
             return functools.partial(self._subscribe, cmd_name)
-        elif cmd_name in {'unsubscribe', 'punsubscribe'}:
+        if cmd_name in {'unsubscribe', 'punsubscribe'}:
             return functools.partial(self._unsubscribe, cmd_name)
         return functools.partial(self._execute, cmd_name)
 
 
 class RedisPool:
+    """Class representing a pool of connections to a Redis server
+
+        >>> import siderpy
+        >>> pool = siderpy.RedisPool('localhost', port=6379, size=10)
+        >>> await pool.ping()
+        >>> pool.close_connections()
+    """
 
     __slots__ = ('_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx', '_pool')
 
@@ -456,8 +542,17 @@ class RedisPool:
                  port: int = REDIS_PORT,
                  connect_timeout: float = CONNECT_TIMEOUT,
                  timeout: tp.Union[float, tuple, list] = None,
-                 size: int = None,
+                 size: int = POOL_SIZE,
                  ssl_ctx: ssl.SSLContext = None):
+        """
+        Args:
+            host (:obj:`str`): same as :obj:`host` argument for :py:class:`Redis`.
+            port (:obj:`int`, optional): same as :obj:`port` argument for :py:class:`Redis`.
+            connect_timeout (:obj:`float`, optional): same as :obj:`connect_timeout` argument for :obj:`Redis`.
+            timeout (:obj:`float`, optional): same as :obj:`timeout` argument for :py:class:`Redis`.
+            size (:obj:`int`, optional): Pool size.
+            ssl_ctx (:py:class:`ssl.SSLContext`, optional): same as :obj:`ssl_ctx` argument for :py:class:`Redis`.
+        """
         self._host = host
         self._port = port
         self._connect_timeout = connect_timeout
@@ -471,7 +566,7 @@ class RedisPool:
 
     def __str__(self):
         return '<{}.{} ({}, {})) {} [{}]>'.format(
-                self.__class__.__module__, self.__class__.__name__, self._host, self._port, self._pool, hex(id(self)))
+            self.__class__.__module__, self.__class__.__name__, self._host, self._port, self._pool, hex(id(self)))
 
     async def _factory(self):
         return Redis(self._host,
@@ -482,6 +577,13 @@ class RedisPool:
 
     @contextlib.asynccontextmanager
     async def get_redis(self, timeout: float = None):
+        """Context manager for getting Redis instance
+
+        :param float timeout: Timeout to get initialized :py:class:`Redis` object
+
+        >>> async with pool.get_redis() as redis:
+        >>>     await redis.ping()
+        """
         redis = await self._pool.get(timeout=timeout)
         try:
             yield redis
@@ -496,6 +598,7 @@ class RedisPool:
             self._pool.put(redis)
 
     def close_connections(self):
+        """Close all established connections"""
         self._pool.close(lambda redis: redis.close_connection())
 
     async def _execute(self, attr_name: str, *args):
