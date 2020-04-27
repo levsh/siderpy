@@ -1,10 +1,10 @@
-import os
 import asyncio
 import collections
 import contextlib
 import functools
 import logging
 import numbers
+import os
 import ssl
 import typing as tp
 
@@ -27,7 +27,11 @@ CONNECT_TIMEOUT = 30
 POOL_SIZE = 4
 
 
-class RedisError(Exception):
+class SiderPyError(Exception):
+    pass
+
+
+class RedisError(SiderPyError):
     pass
 
 
@@ -53,8 +57,8 @@ class Protocol:
 
     def __str__(self):
         if self._reader:
-            return f'{self.__class__.__module__}.{self.__class__.__name__} {self._reader}'
-        return f'{self.__class__.__module__}.{self.__class__.__name__}'
+            return f'<{self.__class__.__module__}.{self.__class__.__name__} {self._reader} {hex(id(self))}>'
+        return f'<{self.__class__.__module__}.{self.__class__.__name__} {hex(id(self))}>'
 
     def __repr__(self):
         return self.__str__()
@@ -63,7 +67,7 @@ class Protocol:
         if self._reader:
             self._reader = hiredis.Reader()
         else:
-            self._ready.clear()
+            self._ready = []
             self._unparsed = None
 
     def make_cmd(self, cmd_name: str, cmd_args: tp.Union[tuple, list]) -> bytearray:
@@ -88,8 +92,7 @@ class Protocol:
             b'$': self._parse_bulk_string(),
             b'*': self._parse_array()}
         for v in sub_parser_map.values():
-            # pylint: disable=stop-iteration-return
-            next(v)
+            next(v)  # pylint: disable=stop-iteration-return
         data = None
         while True:
             bytestring = yield data, bytestring
@@ -184,8 +187,7 @@ class Protocol:
                 data = [], remain
                 continue
             sub_parser = self._parse()
-            # pylint: disable=stop-iteration-return
-            next(sub_parser)
+            next(sub_parser)  # pylint: disable=stop-iteration-return
             while len(out) != number_of_elements:
                 if not remain:
                     remain = yield False, remain
@@ -216,8 +218,8 @@ class Pool:
             self._queue.put_nowait(None)
 
     def __str__(self):
-        return '<{}.{} size {}, available {}>'.format(
-                self.__class__.__module__, self.__class__.__name__, self.size, self._queue.qsize())
+        return '<{}.{} size {}, available {} {}>'.format(
+                self.__class__.__module__, self.__class__.__name__, self.size, self._queue.qsize(), hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -230,15 +232,17 @@ class Pool:
                     item = await self.factory()
                     if callable(self.on_create):
                         self.on_create(item)
-                except Exception as e:
+                except (asyncio.CancelledError, Exception) as e:
                     self._queue.put_nowait(None)
                     raise e
             self._used.add(item)
+            LOG.debug('%s get %s', self, item)
             return item
         return await asyncio.wait_for(call(), timeout)
 
     def put(self, item):
         if item in self._used:
+            LOG.debug('%s put %s', self, item)
             self._used.remove(item)
             self._queue.put_nowait(item)
 
@@ -283,7 +287,8 @@ class Redis:
             self._read_timeout = timeout
             self._write_timeout = timeout
         self._ssl_ctx = ssl_ctx
-        self._pool = Pool(self._create_connection, size=1,
+        self._pool = Pool(self._create_connection,
+                          size=1,
                           test=lambda conn: not conn[1].is_closing(),
                           on_create=self._on_connection_create)
         self._proto = Protocol()
@@ -294,7 +299,7 @@ class Redis:
         self._subscriber_channels = set()
 
     def __str__(self):
-        return f'{self.__class__.__module__}.{self.__class__.__name__} ({self._host}, {self._port})'
+        return f'<{self.__class__.__module__}.{self.__class__.__name__} ({self._host}, {self._port}) {hex(id(self))}>'
 
     def __repr__(self):
         return self.__str__()
@@ -304,7 +309,7 @@ class Redis:
 
     def pipeline_on(self):
         if self._subscriber:
-            raise RedisError('Client in subscribe mode')
+            raise SiderPyError('Client in subscribe mode')
         self._pipeline = True
 
     def pipeline_off(self):
@@ -320,13 +325,13 @@ class Redis:
 
     async def pipeline_execute(self):
         if self._subscriber:
-            raise RedisError('Client in subscribe mode')
+            raise SiderPyError('Client in subscribe mode')
         res = await self._execute_bytestring(b''.join(self._buf))
         self._buf = []
         return res
 
     def pipeline_clear(self):
-        self._buf.clear()
+        self._buf = []
 
     async def _create_connection(self) -> tp.Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         handshake_timeout = None
@@ -353,11 +358,11 @@ class Redis:
         has_data = proto.has_data
         while True:
             raw = await r.read(1024)
-            LOG.debug('read: %s', raw)
+            # pylint: disable=protected-access
+            LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
             if raw == b'' and r.at_eof():
                 raise ConnectionError
             feed(raw)
-            data = None
             while True:
                 data = gets()
                 if data is False:
@@ -370,15 +375,15 @@ class Redis:
 
     async def _execute_bytestring(self, bytestring: tp.Union[bytearray, bytes]):
         async with self._pool.get_item(timeout=self._connect_timeout) as (r, w):
-            LOG.debug('write: %s', bytestring)
+            LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), bytestring)
             try:
                 w.write(bytestring)
                 await asyncio.wait_for(w.drain(), self._write_timeout)
                 if self._subscriber:
                     return
                 data = await asyncio.wait_for(self._read(r), self._read_timeout)
-            except Exception as e:
-                LOG.warning('Closing connection %s', w)
+            except (asyncio.CancelledError, Exception) as e:
+                LOG.warning('%s closing connection %s', self, w)
                 w.close()
                 await w.wait_closed()
                 raise e
@@ -490,7 +495,7 @@ class RedisPool:
                     # pylint: disable=protected-access
                     await asyncio.wait_for(asyncio.wait({redis._subscriber}), timeout)
                 except asyncio.TimeoutError:
-                    raise RedisError('Returning into pool instance with active pub/sub')
+                    raise SiderPyError('Returning into pool instance with active pub/sub')
             self._pool.put(redis)
 
     def close_connections(self):
