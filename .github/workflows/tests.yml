@@ -18,8 +18,7 @@ jobs:
         python-version: 3.8
     - name: Docker images
       run: |
-        docker build . --file tests/Dockerfile.py3.7 --tag siderpy_tests_3.7
-        docker build . --file tests/Dockerfile.py3.8 --tag siderpy_tests_3.8
+        /bin/bash docker-build.sh
         docker pull redis:latest
         docker pull haproxy:latest
     - name: Install requirements
@@ -27,7 +26,7 @@ jobs:
         pip install pylint flake8
         pip install -r tests/requirements.txt
     - name: Run pytest
-      run: pytest --timeout=30 -svv --durations=5 tests/run.py
+      run: pytest --timeout=60 -sv --durations=5 tests/run.py
     - name: Linter
       run: |
         pylint siderpy.py
