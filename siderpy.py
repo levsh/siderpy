@@ -402,7 +402,7 @@ class Redis:
         if self._subscriber:
             raise SiderPyError('Client in subscribe mode')
         if self._buf:
-            res = await self._execute_bytestring(b''.join(self._buf))
+            res = await self._execute_cmd_list(self._buf)
             self._buf = []
             return res
 
@@ -427,13 +427,13 @@ class Redis:
             self._subscriber_cb = None
             self._subscriber_channels = set()
 
-    async def _read(self, r: asyncio.StreamReader) -> tp.List[bytes]:
+    async def _read(self, r: asyncio.StreamReader, count: int = 1) -> tp.List[bytes]:
         out = []
         proto = self._proto
         feed = proto.feed
         gets = proto.gets
         has_data = proto.has_data
-        while True:
+        while len(out) < count:
             raw = await r.read(1024)
             # pylint: disable=protected-access
             LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
@@ -444,13 +444,16 @@ class Redis:
                 data = gets()
                 if data is False:
                     break
+                if isinstance(data, RedisError):
+                    raise data  # pylint: disable=raising-bad-type
                 out.append(data)
                 if not has_data():
-                    return out
-            if not has_data():
-                return out
+                    break
+        return out
 
-    async def _execute_bytestring(self, bytestring: tp.Union[bytearray, bytes]):
+    async def _execute_cmd_list(self, cmd_list: list):
+        cmd_count = len(cmd_list)
+        bytestring = b''.join(cmd_list)
         async with self._pool.get_item(timeout=self._connect_timeout) as (r, w):
             LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), bytestring)
             try:
@@ -458,7 +461,7 @@ class Redis:
                 await asyncio.wait_for(w.drain(), self._write_timeout)
                 if self._subscriber:
                     return
-                data = await asyncio.wait_for(self._read(r), self._read_timeout)
+                data = await asyncio.wait_for(self._read(r, count=cmd_count), self._read_timeout)
             except (asyncio.CancelledError, Exception) as e:
                 LOG.warning('%s closing connection %s', self, w)
                 w.close()
@@ -466,15 +469,15 @@ class Redis:
                 raise e
             if len(data) == 1:
                 data = data[0]
-            if isinstance(data, RedisError):
-                raise data
+            # if isinstance(data, RedisError):
+            #     raise data
             return data
 
     async def _execute(self, cmd_name: str, *args):
-        bytestring = self._proto.make_cmd(cmd_name, args)
+        cmd = self._proto.make_cmd(cmd_name, args)
         if not self._pipeline:
-            return await self._execute_bytestring(bytestring)
-        self._buf.append(bytestring)
+            return await self._execute_cmd_list([cmd])
+        self._buf.append(cmd)
 
     async def _subscribe(self, cmd_name: str, callback: tp.Coroutine, *channels):
         if not callable(callback):

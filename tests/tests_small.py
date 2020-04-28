@@ -434,15 +434,15 @@ class TestRedis:
         assert redis._pipeline is False
 
     async def test_pipeline_execute(self):
-        with mock.patch.object(siderpy.Redis, '_execute_bytestring', return_value=None) as mock_method:
+        with mock.patch.object(siderpy.Redis, '_execute_cmd_list', return_value=None) as mock_method:
             redis = siderpy.Redis('localhost')
             await redis.pipeline_execute()
             mock_method.assert_not_awaited()
-        with mock.patch.object(siderpy.Redis, '_execute_bytestring', return_value=None) as mock_method:
+        with mock.patch.object(siderpy.Redis, '_execute_cmd_list', return_value=None) as mock_method:
             redis = siderpy.Redis('localhost')
             redis._buf = [b'+OK\r\n', b':1000\r\n']
             await redis.pipeline_execute()
-            mock_method.assert_awaited_once_with(b'+OK\r\n:1000\r\n')
+            mock_method.assert_awaited_once_with([b'+OK\r\n', b':1000\r\n'])
 
     def test_pipeline_clear(self):
         redis = siderpy.Redis('localhost')
@@ -487,20 +487,20 @@ class TestRedis:
         redis = siderpy.Redis('localhost')
         assert await redis._read(r) == [b'a' * 1500]
 
-    async def test__execute_bytestring(self):
+    async def test__execute_cmd_list(self):
         r = mock.Mock()
         w = mock.Mock()
         w.write = mock.MagicMock()
         w.drain = mock.AsyncMock()
-        with mock.patch.object(siderpy.Redis, '_read', return_value=[b'PONG']) as mock_read:
+        with mock.patch.object(siderpy.Redis, '_read', return_value=[b'PONG', b'PONG']) as mock_read:
             with mock.patch.object(siderpy.Pool, 'get', return_value=(r, w)) as mock_get:
                 redis = siderpy.Redis('localhost')
-                data = await redis._execute_bytestring(b'$4\r\nPING\r\n')
-                assert data == b'PONG'
+                data = await redis._execute_cmd_list([b'$4\r\nPING\r\n', b'$4\r\nPING\r\n'])
+                assert data == [b'PONG', b'PONG']
                 mock_get.assert_awaited_once_with(timeout=redis._connect_timeout)
-                mock_read.assert_awaited_once_with(r)
+                mock_read.assert_awaited_once_with(r, count=2)
 
-    async def test__execute_bytestring_write_timeout(self):
+    async def test__execute_cmd_list_write_timeout(self):
         r = mock.Mock()
         w = mock.Mock()
         w.write = mock.MagicMock()
@@ -509,24 +509,28 @@ class TestRedis:
         w.wait_closed = mock.AsyncMock()
         with mock.patch.object(siderpy.Redis, '_read', return_value=[b'PONG']):
             with mock.patch.object(siderpy.Pool, 'get', return_value=(r, w)):
-                redis = siderpy.Redis('localhost', timeout=(None, 0.1))
+                redis = siderpy.Redis('localhost', timeout=(None, 0.2))
                 with pytest.raises(asyncio.TimeoutError):
-                    await redis._execute_bytestring(b'$4\r\nPING\r\n')
+                    await redis._execute_cmd_list([b'$4\r\nPING\r\n'])
                     w.close.assert_called_once()
                     w.wait_closed.assert_awaited_once()
 
-    async def test__execute_bytestring_read_timeout(self):
+    async def test__execute_cmd_list_read_timeout(self):
         r = mock.Mock()
         w = mock.Mock()
         w.write = mock.MagicMock()
         w.drain = mock.AsyncMock()
         w.close = mock.MagicMock()
         w.wait_closed = mock.AsyncMock()
-        with mock.patch.object(siderpy.Redis, '_read', side_effect=functools.partial(asyncio.sleep, 10)):
+
+        async def sleep(*args, **kwds):
+            await asyncio.sleep(10)
+
+        with mock.patch.object(siderpy.Redis, '_read', side_effect=sleep):
             with mock.patch.object(siderpy.Pool, 'get', return_value=(r, w)):
-                redis = siderpy.Redis('localhost', timeout=(0.1, 0.1))
+                redis = siderpy.Redis('localhost', timeout=(0.2, None))
                 with pytest.raises(asyncio.TimeoutError):
-                    await redis._execute_bytestring(b'$4\r\nPING\r\n')
+                    await redis._execute_cmd_list([b'$4\r\nPING\r\n'])
                     w.close.assert_called_once()
                     w.wait_closed.assert_awaited_once()
 

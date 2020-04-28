@@ -42,7 +42,7 @@ services:
   #       pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py"
 
   tests_3.8:
-    image: siderpy_tests_3.8
+    image: siderpy_tests_hiredis_3.8
     volumes:
       - .:/opt/siderpy
     links:
@@ -58,8 +58,4 @@ services:
     command:
       bash -c "
         pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests_small.py --cov &&
-        pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py &&
-        pip install hiredis &&
-        pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests_small.py --cov &&
-        pip install aioredis &&
         pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py"
