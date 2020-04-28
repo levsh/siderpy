@@ -7,17 +7,13 @@ import contextlib
 import functools
 import logging
 import numbers
-import os
 import ssl
 import typing as tp
 
-
-hiredis = None
-if not os.environ.get('SIDERPY_DISABLE_HIREDIS'):
-    try:
-        import hiredis
-    except ImportError:
-        pass
+try:
+    import hiredis
+except ImportError:
+    hiredis = None
 
 
 LOG = logging.getLogger(__name__)
@@ -71,8 +67,8 @@ class Protocol:
         if self._reader:
             self._reader = hiredis.Reader()
         else:
-            self._ready = []
-            self._unparsed = None
+            self._ready.clear()
+            self._unparsed = b''
 
     def make_cmd(self, cmd_name: str, cmd_args: tp.Union[tuple, list]) -> bytearray:
         buf = bytearray()
@@ -99,11 +95,11 @@ class Protocol:
             next(v)  # pylint: disable=stop-iteration-return
         data = None
         while True:
-            bytestring = yield data, bytestring
+            bytestring = yield data
             if sub_parser is None:
                 sub_parser = sub_parser_map[bytestring[:1]]
-            data, bytestring = sub_parser.send(bytestring)
-            if data is not False:
+            data = sub_parser.send(bytestring)
+            if data[0] is not False:
                 sub_parser = None
 
     def _feed(self, bytestring: bytes):
@@ -135,7 +131,7 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = False, bytestring
+                data = [False, bytestring]
 
     def _parse_error(self):
         data = None
@@ -143,9 +139,9 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = False, bytestring
+                data = [False, bytestring]
             else:
-                data = RedisError(data[0].decode()), data[1]
+                data = [RedisError(data[0].decode()), data[1]]
 
     def _parse_integer(self):
         data = None
@@ -153,9 +149,9 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = False, bytestring
+                data = [False, bytestring]
             else:
-                data = int(data[0].decode()), data[1]
+                data = [int(data[0].decode()), data[1]]
 
     def _parse_bulk_string(self):
         data = None
@@ -163,16 +159,16 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = False, bytestring
+                data = [False, bytestring]
                 continue
             strlen, remain = int(data[0].decode()), data[1]
             if strlen == -1:
-                data = None, remain
+                data = [None, remain]
                 continue
             if len(remain) - 2 < strlen:
-                data = False, bytestring
+                data = [False, bytestring]
                 continue
-            data = remain[:strlen], remain[strlen + 2:]
+            data = [remain[:strlen], remain[strlen + 2:]]
 
     def _parse_array(self):
         data = None
@@ -181,31 +177,31 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = False, bytestring
+                data = [False, bytestring]
                 continue
             number_of_elements, remain = int(data[0].decode()), data[1]
             if number_of_elements == -1:
-                data = None, remain
+                data = [None, remain]
                 continue
             if number_of_elements == 0:
-                data = [], remain
+                data = [[], remain]
                 continue
             sub_parser = self._parse()
             next(sub_parser)  # pylint: disable=stop-iteration-return
             while len(out) != number_of_elements:
                 if not remain:
-                    remain = yield False, remain
+                    remain = yield [False, remain]
                     continue
                 data, remain = sub_parser.send(remain)
                 if data is False:
-                    remain = yield False, remain
+                    remain = yield [False, remain]
                     continue
                 out.append(data)
-            data = out, remain
+            data = [out, remain]
             out = []
 
 
-class _Pool:
+class Pool:
 
     __slots__ = ('_factory', '_size', '_test', '_on_create', '_queue', '_used')
 
@@ -265,7 +261,7 @@ class _Pool:
             func(item)
         while self._queue.qsize():
             item = self._queue.get_nowait()
-            if item:
+            if item is not None:
                 func(item)
 
 
@@ -339,10 +335,10 @@ class Redis:
             self._read_timeout = timeout
             self._write_timeout = timeout
         self._ssl_ctx = ssl_ctx
-        self._pool = _Pool(self._create_connection,
-                           size=1,
-                           test=lambda conn: not conn[1].is_closing(),
-                           on_create=self._on_connection_create)
+        self._pool = Pool(self._create_connection,
+                          size=1,
+                          test=lambda conn: not conn[1].is_closing(),
+                          on_create=self._on_connection_create)
         self._proto = Protocol()
         self._pipeline = False
         self._buf = []
@@ -405,9 +401,10 @@ class Redis:
         """Execute pipeline buffer"""
         if self._subscriber:
             raise SiderPyError('Client in subscribe mode')
-        res = await self._execute_bytestring(b''.join(self._buf))
-        self._buf = []
-        return res
+        if self._buf:
+            res = await self._execute_bytestring(b''.join(self._buf))
+            self._buf = []
+            return res
 
     def pipeline_clear(self):
         """Clear internal pipeline buffer"""
@@ -535,7 +532,7 @@ class RedisPool:
         >>> pool.close_connections()
     """
 
-    __slots__ = ('_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx', '_pool')
+    __slots__ = ('_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_size', '_ssl_ctx', '_pool')
 
     def __init__(self,
                  host: str,
@@ -561,11 +558,12 @@ class RedisPool:
         else:
             self._read_timeout = timeout
             self._write_timeout = timeout
+        self._size = size
         self._ssl_ctx = ssl_ctx
-        self._pool = _Pool(self._factory, size=size)
+        self._pool = Pool(self._factory, size=size)
 
     def __str__(self):
-        return '<{}.{} ({}, {})) {} [{}]>'.format(
+        return '<{}.{} ({}, {}) {} [{}]>'.format(
             self.__class__.__module__, self.__class__.__name__, self._host, self._port, self._pool, hex(id(self)))
 
     async def _factory(self):

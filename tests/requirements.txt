@@ -1,5 +1,5 @@
-aioredis
 docker
 pytest
 pytest-asyncio
 pytest-timeout
+pytest-cov
