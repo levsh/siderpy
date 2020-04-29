@@ -8,6 +8,7 @@ import functools
 import logging
 import numbers
 import ssl
+import sys
 import typing as tp
 
 try:
@@ -16,10 +17,13 @@ except ImportError:
     hiredis = None
 
 
+log_frmt = logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s')
+log_hndl = logging.StreamHandler(stream=sys.stderr)
+log_hndl.setFormatter(log_frmt)
 LOG = logging.getLogger(__name__)
-LOG.setLevel('INFO')
+LOG.addHandler(log_hndl)
+LOG.setLevel('DEBUG')
 
-logging.basicConfig()
 
 REDIS_PORT = 6379
 CONNECT_TIMEOUT = 30
@@ -229,13 +233,13 @@ class Pool:
                     self._queue.put_nowait(None)
                     raise e
             self._used.add(item)
-            LOG.debug('%s get %s', self, item)
+            # LOG.debug('%s get %s', self, item)
             return item
         return await asyncio.wait_for(call(), timeout)
 
     def put(self, item):
         if item in self._used:
-            LOG.debug('%s put %s', self, item)
+            # LOG.debug('%s put %s', self, item)
             self._used.remove(item)
             self._queue.put_nowait(item)
 
@@ -405,6 +409,7 @@ class Redis:
         handshake_timeout = None
         if self._ssl_ctx:
             handshake_timeout = self._connect_timeout
+        # LOG.debug('%s create connection', self)
         return await asyncio.open_connection(host=self._host,
                                              port=self._port,
                                              ssl=self._ssl_ctx,
@@ -451,7 +456,7 @@ class Redis:
                     return
                 data = await asyncio.wait_for(self._read(r, count=cmd_count), self._read_timeout)
             except (asyncio.CancelledError, Exception) as e:
-                LOG.warning('%s closing connection %s', self, w)
+                LOG.warning('%s close connection %s', self, w)
                 w.close()
                 await w.wait_closed()
                 raise e
