@@ -38,7 +38,7 @@ class RedisError(SiderPyError):
 
 class Protocol:
 
-    __slots__ = ('_reader', '_unparsed', '_parser', '_ready', 'feed', 'gets', 'has_data')
+    __slots__ = ('_reader', '_unparsed', '_parser', '_ready', '_map', 'feed', 'gets', 'has_data')
 
     def __init__(self):
         if hiredis is None:
@@ -53,7 +53,7 @@ class Protocol:
         else:
             self._reader = hiredis.Reader()
             self.feed = self._reader.feed
-            self.gets = self._gets_hiredis
+            self.gets = self._reader.gets
             self.has_data = self._reader.has_data
 
     def __str__(self):
@@ -113,17 +113,8 @@ class Protocol:
 
     def _gets(self):
         if self._ready:
-            data = self._ready.popleft()
-            if isinstance(data, Exception):
-                raise data
-            return data
+            return self._ready.popleft()
         return False
-
-    def _gets_hiredis(self):
-        data = self._reader.gets()
-        if isinstance(data, Exception):
-            raise RedisError(data) from data
-        return data
 
     def _parse_string(self):
         data = None
@@ -131,7 +122,7 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = [False, bytestring]
+                data = False, bytestring
 
     def _parse_error(self):
         data = None
@@ -139,9 +130,9 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = [False, bytestring]
+                data = False, bytestring
             else:
-                data = [RedisError(data[0].decode()), data[1]]
+                data = RedisError(data[0].decode()), data[1]
 
     def _parse_integer(self):
         data = None
@@ -149,9 +140,9 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = [False, bytestring]
+                data = False, bytestring
             else:
-                data = [int(data[0].decode()), data[1]]
+                data = int(data[0].decode()), data[1]
 
     def _parse_bulk_string(self):
         data = None
@@ -159,16 +150,16 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = [False, bytestring]
+                data = False, bytestring
                 continue
             strlen, remain = int(data[0].decode()), data[1]
             if strlen == -1:
-                data = [None, remain]
+                data = None, remain
                 continue
             if len(remain) - 2 < strlen:
-                data = [False, bytestring]
+                data = False, bytestring
                 continue
-            data = [remain[:strlen], remain[strlen + 2:]]
+            data = remain[:strlen], remain[strlen + 2:]
 
     def _parse_array(self):
         data = None
@@ -177,27 +168,27 @@ class Protocol:
             bytestring = yield data
             data = bytestring[1:].split(b'\r\n', 1)
             if len(data) != 2:
-                data = [False, bytestring]
+                data = False, bytestring
                 continue
             number_of_elements, remain = int(data[0].decode()), data[1]
             if number_of_elements == -1:
-                data = [None, remain]
+                data = None, remain
                 continue
             if number_of_elements == 0:
-                data = [[], remain]
+                data = [], remain
                 continue
             sub_parser = self._parse()
             next(sub_parser)  # pylint: disable=stop-iteration-return
             while len(out) != number_of_elements:
                 if not remain:
-                    remain = yield [False, remain]
+                    remain = yield False, remain
                     continue
                 data, remain = sub_parser.send(remain)
                 if data is False:
-                    remain = yield [False, remain]
+                    remain = yield False, remain
                     continue
                 out.append(data)
-            data = [out, remain]
+            data = out, remain
             out = []
 
 
@@ -430,24 +421,21 @@ class Redis:
     async def _read(self, r: asyncio.StreamReader, count: int = 1) -> tp.List[bytes]:
         out = []
         proto = self._proto
-        feed = proto.feed
-        gets = proto.gets
-        has_data = proto.has_data
         while len(out) < count:
-            raw = await r.read(1024)
-            # pylint: disable=protected-access
-            LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
+            raw = await r.read(2048)
+            # # pylint: disable=protected-access
+            # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
             if raw == b'' and r.at_eof():
                 raise ConnectionError
-            feed(raw)
+            proto.feed(raw)
             while True:
-                data = gets()
+                data = proto.gets()
+                if isinstance(data, Exception):
+                    raise RedisError(data) from data
                 if data is False:
                     break
-                if isinstance(data, RedisError):
-                    raise data  # pylint: disable=raising-bad-type
                 out.append(data)
-                if not has_data():
+                if not proto.has_data():
                     break
         return out
 
@@ -455,7 +443,7 @@ class Redis:
         cmd_count = len(cmd_list)
         bytestring = b''.join(cmd_list)
         async with self._pool.get_item(timeout=self._connect_timeout) as (r, w):
-            LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), bytestring)
+            # LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), bytestring)
             try:
                 w.write(bytestring)
                 await asyncio.wait_for(w.drain(), self._write_timeout)
@@ -469,8 +457,6 @@ class Redis:
                 raise e
             if len(data) == 1:
                 data = data[0]
-            # if isinstance(data, RedisError):
-            #     raise data
             return data
 
     async def _execute(self, cmd_name: str, *args):

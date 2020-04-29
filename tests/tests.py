@@ -2,6 +2,11 @@ import asyncio
 import os
 import ssl
 
+try:
+    import aioredis
+except ImportError:
+    aioredis = None
+
 import pytest
 
 import siderpy
@@ -28,7 +33,7 @@ def event_loop(scope='function'):
 
 
 @pytest.fixture(scope='function')
-def redis():
+async def redis():
     ssl_ctx = None
     if TESTS_USE_SSL:
         ssl_ctx = ssl.create_default_context()
@@ -45,6 +50,17 @@ def redis():
 async def prepare(redis):
     await redis.flushall()
     yield
+
+
+@pytest.fixture()
+async def aio_redis():
+    ssl_ctx = None
+    if TESTS_USE_SSL:
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
+    aio_redis = await aioredis.create_redis_pool('redis://{}:{}'.format(REDIS_HOST, REDIS_PORT), ssl=ssl_ctx)
+    yield aio_redis
 
 
 @pytest.fixture(scope='function')
@@ -296,4 +312,17 @@ class TestBenchmark:
             for i in range(self.count):
                 await redis.set(f'key{i}', f'value{i}')
             for _ in range(self.count):
-                await redis.mget(*keys)
+                data = await redis.mget(*keys)
+                assert len(data) == self.count
+
+    @pytest.mark.skipif(aioredis is None, reason="aioredis is not installed")
+    async def test_set_get_aioredis(self, event_loop, prepare, aio_redis):
+        if siderpy.hiredis is None:
+            return
+        keys = [f'key{i}' for i in range(self.count)]
+        for _ in range(5):
+            for i in range(self.count):
+                await aio_redis.set(f'key{i}', f'value{i}')
+            for _ in range(self.count):
+                data = await aio_redis.mget(*keys)
+                assert len(data) == self.count

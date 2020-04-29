@@ -85,7 +85,7 @@ class TestProtocol:
         next(parser)
 
         assert parser.send(b'+OK\r\n') == [b'OK', b'']
-        assert parser.send(b'+OK') == [False, b'+OK']
+        assert parser.send(b'+OK') == (False, b'+OK')
         assert parser.send(b'+OK\r\n$6\r') == [b'OK', b'$6\r']
 
     def test__parse_error(self):
@@ -97,7 +97,7 @@ class TestProtocol:
         data = parser.send(b'-Err\r\n')
         assert data and isinstance(data[0], siderpy.RedisError) and data[1] == b''
         data = parser.send(b'-Err')
-        assert data == [False, b'-Err']
+        assert data == (False, b'-Err')
         data = parser.send(b'-Err\r\n+OK')
         assert data and isinstance(data[0], siderpy.RedisError) and data[1] == b'+OK'
 
@@ -107,9 +107,9 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b':1000\r\n') == [1000, b'']
-        assert parser.send(b':1000') == [False, b':1000']
-        assert parser.send(b':1000\r\n+OK') == [1000, b'+OK']
+        assert parser.send(b':1000\r\n') == (1000, b'')
+        assert parser.send(b':1000') == (False, b':1000')
+        assert parser.send(b':1000\r\n+OK') == (1000, b'+OK')
 
     def test__parse_bulk_string(self):
         proto = siderpy.Protocol()
@@ -117,12 +117,12 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b'$6\r\nfoobar\r\n') == [b'foobar', b'']
-        assert parser.send(b'$6\r\nfoo') == [False, b'$6\r\nfoo']
-        assert parser.send(b'$6\r\nfoobar') == [False, b'$6\r\nfoobar']
-        assert parser.send(b'$6\r\nfoobar\r\n+OK') == [b'foobar', b'+OK']
-        assert parser.send(b'$-1\r\n') == [None, b'']
-        assert parser.send(b'$0\r\n\r\n') == [b'', b'']
+        assert parser.send(b'$6\r\nfoobar\r\n') == (b'foobar', b'')
+        assert parser.send(b'$6\r\nfoo') == (False, b'$6\r\nfoo')
+        assert parser.send(b'$6\r\nfoobar') == (False, b'$6\r\nfoobar')
+        assert parser.send(b'$6\r\nfoobar\r\n+OK') == (b'foobar', b'+OK')
+        assert parser.send(b'$-1\r\n') == (None, b'')
+        assert parser.send(b'$0\r\n\r\n') == (b'', b'')
 
     def test__parse_array(self):
         proto = siderpy.Protocol()
@@ -130,20 +130,20 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b'*0\r\n') == [[], b'']
-        assert parser.send(b'*0\r') == [False, b'*0\r']
-        assert parser.send(b'*0\r\n+OK') == [[], b'+OK']
+        assert parser.send(b'*0\r\n') == ([], b'')
+        assert parser.send(b'*0\r') == (False, b'*0\r')
+        assert parser.send(b'*0\r\n+OK') == ([], b'+OK')
 
-        assert parser.send(b'*-1\r\n') == [None, b'']
-        assert parser.send(b'*-1\r') == [False, b'*-1\r']
-        assert parser.send(b'*-1\r\n+OK') == [None, b'+OK']
+        assert parser.send(b'*-1\r\n') == (None, b'')
+        assert parser.send(b'*-1\r') == (False, b'*-1\r')
+        assert parser.send(b'*-1\r\n+OK') == (None, b'+OK')
 
-        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == [[b'foo', b'bar'], b'']
-        assert parser.send(b'*3\r\n:1\r\n:2\r\n:3\r\n') == [[1, 2, 3], b'']
-        assert parser.send(b'*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n') == [[1, 2, 3, 4, b'foobar'], b'']
+        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == ([b'foo', b'bar'], b'')
+        assert parser.send(b'*3\r\n:1\r\n:2\r\n:3\r\n') == ([1, 2, 3], b'')
+        assert parser.send(b'*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n') == ([1, 2, 3, 4, b'foobar'], b'')
 
-        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\n') == [False, b'$3\r\n']
-        assert parser.send(b'$3\r\nbar\r\n') == [[b'foo', b'bar'], b'']
+        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\n') == (False, b'$3\r\n')
+        assert parser.send(b'$3\r\nbar\r\n') == ([b'foo', b'bar'], b'')
 
         data = parser.send(b'*2\r\n*2\r\n:1\r\n:2\r\n*2\r\n+Foo\r\n+Bar\r\n')
         assert len(data[0]) == 2
@@ -160,15 +160,15 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b'+OK') == [False, b'+OK']
+        assert parser.send(b'+OK') == (False, b'+OK')
         assert parser.send(b'+OK\r\n') == [b'OK', b'']
         data = parser.send(b'-Err\r\n')
         assert isinstance(data[0], siderpy.RedisError) and data[1] == b''
-        assert parser.send(b':1000') == [False, b':1000']
-        assert parser.send(b':1000\r\n') == [1000, b'']
-        assert parser.send(b':1000\r\n+OK\r\n') == [1000, b'+OK\r\n']
-        assert parser.send(b'$6\r\nfoobar\r\n') == [b'foobar', b'']
-        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == [[b'foo', b'bar'], b'']
+        assert parser.send(b':1000') == (False, b':1000')
+        assert parser.send(b':1000\r\n') == (1000, b'')
+        assert parser.send(b':1000\r\n+OK\r\n') == (1000, b'+OK\r\n')
+        assert parser.send(b'$6\r\nfoobar\r\n') == (b'foobar', b'')
+        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == ([b'foo', b'bar'], b'')
 
     def test__feed(self):
         proto = siderpy.Protocol()
@@ -194,8 +194,7 @@ class TestProtocol:
         assert len(proto._ready) == 0
 
         proto._ready.append(siderpy.RedisError('Err'))
-        with pytest.raises(siderpy.RedisError, match='Err'):
-            proto.gets()
+        assert isinstance(proto.gets(), siderpy.RedisError)
         assert len(proto._ready) == 0
 
 
@@ -209,7 +208,6 @@ class TestProtocolHiredis:
         assert not hasattr(proto, '_parser')
         assert not hasattr(proto, '_ready')
         assert proto.feed == proto._reader.feed
-        assert proto.gets == proto._gets_hiredis
         assert proto.has_data == proto._reader.has_data
 
     def test__str(self):
@@ -232,16 +230,6 @@ class TestProtocolHiredis:
                 'set', ['key', b'value']) == b'*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$5\r\nvalue\r\n'
         assert proto.make_cmd(
                 'set', ['key', 1]) == b'*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$1\r\n1\r\n'
-
-    def test__gets_hiredis(self):
-        proto = siderpy.Protocol()
-
-        proto.feed(b'+OK\r\n')
-        assert proto.gets() == b'OK'
-
-        proto.feed(b'-Err\r\n')
-        with pytest.raises(siderpy.RedisError, match='Err'):
-            proto.gets()
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
@@ -467,11 +455,12 @@ class TestRedis:
                                                ssl_handshake_timeout=redis._connect_timeout)
 
     async def test__read(self):
+        chunk_size = 2048
         r = mock.Mock()
         r.read = mock.AsyncMock(return_value=b'$4\r\nPONG\r\n$3\r\nfoo\r\n')
         redis = siderpy.Redis('localhost')
         data = await redis._read(r)
-        r.read.assert_awaited_once_with(1024)
+        r.read.assert_awaited_once_with(chunk_size)
         assert data == [b'PONG', b'foo']
 
         r = mock.Mock()
@@ -481,11 +470,11 @@ class TestRedis:
         with pytest.raises(ConnectionError):
             await redis._read(r)
 
-        raw_data = b'$1500\r\n' + b'a' * 1500 + b'\r\n'
+        raw_data = (f'${chunk_size+500}\r\n' + 'a' * (chunk_size + 500) + '\r\n').encode()
         r = mock.Mock()
-        r.read = mock.AsyncMock(side_effect=[raw_data[:1024], raw_data[1024:]])
+        r.read = mock.AsyncMock(side_effect=[raw_data[:chunk_size], raw_data[chunk_size:]])
         redis = siderpy.Redis('localhost')
-        assert await redis._read(r) == [b'a' * 1500]
+        assert await redis._read(r) == [b'a' * (chunk_size + 500)]
 
     async def test__execute_cmd_list(self):
         r = mock.Mock()

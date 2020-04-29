@@ -10,11 +10,9 @@ docker build --no-cache \
     -f tests/Dockerfile .
 docker build --no-cache \
     --build-arg from=siderpy_tests_3.7 \
-    --build-arg extensions=.[hiredis] \
     -t siderpy_tests_hiredis_3.7 \
-    -f tests/Dockerfile .
+    -f tests/Dockerfile.hiredis .
 docker build --no-cache \
     --build-arg from=siderpy_tests_3.8 \
-    --build-arg extensions=.[hiredis] \
     -t siderpy_tests_hiredis_3.8 \
-    -f tests/Dockerfile .
+    -f tests/Dockerfile.hiredis .
