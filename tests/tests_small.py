@@ -316,14 +316,14 @@ class Test_Pool:
         test.assert_called_once_with(item)
         factory.assert_awaited_once()
 
-    async def test_get_timeout(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        test = mock.MagicMock(return_value=False)
-        pool = siderpy.Pool(factory, size=1, test=test)
-        await pool.get()
-        with pytest.raises(asyncio.TimeoutError):
-            await pool.get(timeout=0.1)
+    # async def test_get_timeout(self):
+    #     item = object()
+    #     factory = mock.AsyncMock(return_value=item)
+    #     test = mock.MagicMock(return_value=False)
+    #     pool = siderpy.Pool(factory, size=1, test=test)
+    #     await pool.get()
+    #     with pytest.raises(asyncio.TimeoutError):
+    #         await pool.get(timeout=0.1)
 
     async def test_put(self):
         item = object()
@@ -486,7 +486,8 @@ class TestRedis:
                 redis = siderpy.Redis('localhost')
                 data = await redis._execute_cmd_list([b'$4\r\nPING\r\n', b'$4\r\nPING\r\n'])
                 assert data == [b'PONG', b'PONG']
-                mock_get.assert_awaited_once_with(timeout=redis._connect_timeout)
+                # mock_get.assert_awaited_once_with(timeout=redis._connect_timeout)
+                mock_get.assert_awaited_once_with()
                 mock_read.assert_awaited_once_with(r, count=2)
 
     async def test__execute_cmd_list_write_timeout(self):

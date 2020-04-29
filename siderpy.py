@@ -22,11 +22,11 @@ log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 LOG = logging.getLogger(__name__)
 LOG.addHandler(log_hndl)
-LOG.setLevel('DEBUG')
+LOG.setLevel('INFO')
 
 
 REDIS_PORT = 6379
-CONNECT_TIMEOUT = 30
+CONNECT_TIMEOUT = None
 POOL_SIZE = 4
 
 
@@ -221,21 +221,19 @@ class Pool:
     def __repr__(self):
         return self.__str__()
 
-    async def get(self, timeout: float = None):
-        async def call():
-            item = await self._queue.get()
-            if item is None or self._test and not self._test(item):
-                try:
-                    item = await self._factory()
-                    if callable(self._on_create):
-                        self._on_create(item)
-                except (asyncio.CancelledError, Exception) as e:
-                    self._queue.put_nowait(None)
-                    raise e
-            self._used.add(item)
-            # LOG.debug('%s get %s', self, item)
-            return item
-        return await asyncio.wait_for(call(), timeout)
+    async def get(self):
+        item = await self._queue.get()
+        if item is None or self._test and not self._test(item):
+            try:
+                item = await self._factory()
+                if callable(self._on_create):
+                    self._on_create(item)
+            except (asyncio.CancelledError, Exception) as e:
+                self._queue.put_nowait(None)
+                raise e
+        self._used.add(item)
+        # LOG.debug('%s get %s', self, item)
+        return item
 
     def put(self, item):
         if item in self._used:
@@ -245,7 +243,10 @@ class Pool:
 
     @contextlib.asynccontextmanager
     async def get_item(self, timeout: float = None):
-        item = await self.get(timeout=timeout)
+        if timeout is not None:
+            item = await asyncio.wait_for(self.get(), timeout)
+        else:
+            item = await self.get()
         try:
             yield item
         finally:
@@ -451,10 +452,16 @@ class Redis:
             # LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), bytestring)
             try:
                 w.write(bytestring)
-                await asyncio.wait_for(w.drain(), self._write_timeout)
+                if self._write_timeout is not None:
+                    await asyncio.wait_for(w.drain(), self._write_timeout)
+                else:
+                    await w.drain()
                 if self._subscriber:
                     return
-                data = await asyncio.wait_for(self._read(r, count=cmd_count), self._read_timeout)
+                if self._read_timeout is not None:
+                    data = await asyncio.wait_for(self._read(r, count=cmd_count), self._read_timeout)
+                else:
+                    data = await self._read(r, count=cmd_count)
             except (asyncio.CancelledError, Exception) as e:
                 LOG.warning('%s close connection %s', self, w)
                 w.close()
@@ -576,7 +583,10 @@ class RedisPool:
         >>> async with pool.get_redis() as redis:
         >>>     await redis.ping()
         """
-        redis = await self._pool.get(timeout=timeout)
+        if timeout is not None:
+            redis = asyncio.wait_for(self._pool.get(), timeout)
+        else:
+            redis = await self._pool.get()
         try:
             yield redis
             if redis._subscriber:  # pylint: disable=protected-access
