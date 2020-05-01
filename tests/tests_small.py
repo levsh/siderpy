@@ -85,7 +85,7 @@ class TestProtocol:
         next(parser)
 
         assert parser.send(b'+OK\r\n') == [b'OK', b'']
-        assert parser.send(b'+OK') == [False, b'+OK']
+        assert parser.send(b'+OK') == (False, b'+OK')
         assert parser.send(b'+OK\r\n$6\r') == [b'OK', b'$6\r']
 
     def test__parse_error(self):
@@ -97,7 +97,7 @@ class TestProtocol:
         data = parser.send(b'-Err\r\n')
         assert data and isinstance(data[0], siderpy.RedisError) and data[1] == b''
         data = parser.send(b'-Err')
-        assert data == [False, b'-Err']
+        assert data == (False, b'-Err')
         data = parser.send(b'-Err\r\n+OK')
         assert data and isinstance(data[0], siderpy.RedisError) and data[1] == b'+OK'
 
@@ -107,9 +107,9 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b':1000\r\n') == [1000, b'']
-        assert parser.send(b':1000') == [False, b':1000']
-        assert parser.send(b':1000\r\n+OK') == [1000, b'+OK']
+        assert parser.send(b':1000\r\n') == (1000, b'')
+        assert parser.send(b':1000') == (False, b':1000')
+        assert parser.send(b':1000\r\n+OK') == (1000, b'+OK')
 
     def test__parse_bulk_string(self):
         proto = siderpy.Protocol()
@@ -117,12 +117,12 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b'$6\r\nfoobar\r\n') == [b'foobar', b'']
-        assert parser.send(b'$6\r\nfoo') == [False, b'$6\r\nfoo']
-        assert parser.send(b'$6\r\nfoobar') == [False, b'$6\r\nfoobar']
-        assert parser.send(b'$6\r\nfoobar\r\n+OK') == [b'foobar', b'+OK']
-        assert parser.send(b'$-1\r\n') == [None, b'']
-        assert parser.send(b'$0\r\n\r\n') == [b'', b'']
+        assert parser.send(b'$6\r\nfoobar\r\n') == (b'foobar', b'')
+        assert parser.send(b'$6\r\nfoo') == (False, b'$6\r\nfoo')
+        assert parser.send(b'$6\r\nfoobar') == (False, b'$6\r\nfoobar')
+        assert parser.send(b'$6\r\nfoobar\r\n+OK') == (b'foobar', b'+OK')
+        assert parser.send(b'$-1\r\n') == (None, b'')
+        assert parser.send(b'$0\r\n\r\n') == (b'', b'')
 
     def test__parse_array(self):
         proto = siderpy.Protocol()
@@ -130,20 +130,20 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b'*0\r\n') == [[], b'']
-        assert parser.send(b'*0\r') == [False, b'*0\r']
-        assert parser.send(b'*0\r\n+OK') == [[], b'+OK']
+        assert parser.send(b'*0\r\n') == ([], b'')
+        assert parser.send(b'*0\r') == (False, b'*0\r')
+        assert parser.send(b'*0\r\n+OK') == ([], b'+OK')
 
-        assert parser.send(b'*-1\r\n') == [None, b'']
-        assert parser.send(b'*-1\r') == [False, b'*-1\r']
-        assert parser.send(b'*-1\r\n+OK') == [None, b'+OK']
+        assert parser.send(b'*-1\r\n') == (None, b'')
+        assert parser.send(b'*-1\r') == (False, b'*-1\r')
+        assert parser.send(b'*-1\r\n+OK') == (None, b'+OK')
 
-        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == [[b'foo', b'bar'], b'']
-        assert parser.send(b'*3\r\n:1\r\n:2\r\n:3\r\n') == [[1, 2, 3], b'']
-        assert parser.send(b'*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n') == [[1, 2, 3, 4, b'foobar'], b'']
+        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == ([b'foo', b'bar'], b'')
+        assert parser.send(b'*3\r\n:1\r\n:2\r\n:3\r\n') == ([1, 2, 3], b'')
+        assert parser.send(b'*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n') == ([1, 2, 3, 4, b'foobar'], b'')
 
-        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\n') == [False, b'$3\r\n']
-        assert parser.send(b'$3\r\nbar\r\n') == [[b'foo', b'bar'], b'']
+        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\n') == (False, b'$3\r\n')
+        assert parser.send(b'$3\r\nbar\r\n') == ([b'foo', b'bar'], b'')
 
         data = parser.send(b'*2\r\n*2\r\n:1\r\n:2\r\n*2\r\n+Foo\r\n+Bar\r\n')
         assert len(data[0]) == 2
@@ -160,15 +160,15 @@ class TestProtocol:
         assert isinstance(parser, types.GeneratorType)
         next(parser)
 
-        assert parser.send(b'+OK') == [False, b'+OK']
+        assert parser.send(b'+OK') == (False, b'+OK')
         assert parser.send(b'+OK\r\n') == [b'OK', b'']
         data = parser.send(b'-Err\r\n')
         assert isinstance(data[0], siderpy.RedisError) and data[1] == b''
-        assert parser.send(b':1000') == [False, b':1000']
-        assert parser.send(b':1000\r\n') == [1000, b'']
-        assert parser.send(b':1000\r\n+OK\r\n') == [1000, b'+OK\r\n']
-        assert parser.send(b'$6\r\nfoobar\r\n') == [b'foobar', b'']
-        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == [[b'foo', b'bar'], b'']
+        assert parser.send(b':1000') == (False, b':1000')
+        assert parser.send(b':1000\r\n') == (1000, b'')
+        assert parser.send(b':1000\r\n+OK\r\n') == (1000, b'+OK\r\n')
+        assert parser.send(b'$6\r\nfoobar\r\n') == (b'foobar', b'')
+        assert parser.send(b'*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n') == ([b'foo', b'bar'], b'')
 
     def test__feed(self):
         proto = siderpy.Protocol()
@@ -194,8 +194,7 @@ class TestProtocol:
         assert len(proto._ready) == 0
 
         proto._ready.append(siderpy.RedisError('Err'))
-        with pytest.raises(siderpy.RedisError, match='Err'):
-            proto.gets()
+        assert isinstance(proto.gets(), siderpy.RedisError)
         assert len(proto._ready) == 0
 
 
@@ -209,7 +208,6 @@ class TestProtocolHiredis:
         assert not hasattr(proto, '_parser')
         assert not hasattr(proto, '_ready')
         assert proto.feed == proto._reader.feed
-        assert proto.gets == proto._gets_hiredis
         assert proto.has_data == proto._reader.has_data
 
     def test__str(self):
@@ -233,140 +231,6 @@ class TestProtocolHiredis:
         assert proto.make_cmd(
                 'set', ['key', 1]) == b'*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$1\r\n1\r\n'
 
-    def test__gets_hiredis(self):
-        proto = siderpy.Protocol()
-
-        proto.feed(b'+OK\r\n')
-        assert proto.gets() == b'OK'
-
-        proto.feed(b'-Err\r\n')
-        with pytest.raises(siderpy.RedisError, match='Err'):
-            proto.gets()
-
-
-@pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
-class Test_Pool:
-
-    def test__init(self):
-        async def factory():
-            return
-
-        def test(*args, **kwds):
-            return
-
-        def on_create(*args, **kwds):
-            return
-
-        pool = siderpy.Pool(factory)
-        assert pool._factory == factory
-        assert pool._size == siderpy.POOL_SIZE
-        assert pool._test is None
-        assert pool._on_create is None
-        assert isinstance(pool._queue, asyncio.LifoQueue)
-        assert pool._queue.maxsize == pool._size
-        assert pool._queue.qsize() == pool._size
-        assert len(pool._used) == 0
-
-        pool = siderpy.Pool(factory, size=10, test=test, on_create=on_create)
-        assert pool._factory == factory
-        assert pool._size == 10
-        assert pool._test == test
-        assert pool._on_create == on_create
-        assert isinstance(pool._queue, asyncio.LifoQueue)
-        assert pool._queue.maxsize == 10
-        assert pool._queue.qsize() == 10
-        assert len(pool._used) == 0
-
-    def test__str(self):
-        pool = siderpy.Pool(lambda *args: args)
-        assert str(pool) == '<siderpy.Pool size {}, available {} [{}]>'.format(
-                siderpy.POOL_SIZE, siderpy.POOL_SIZE, hex(id(pool)))
-
-    async def test_get(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        pool = siderpy.Pool(factory)
-        assert item == await pool.get()
-        factory.assert_awaited_once()
-        assert len(pool._used) == 1 and item in pool._used
-        assert pool._queue.qsize() == pool._size - 1
-
-    async def test_get_itemtest_not_called(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        test = mock.MagicMock(return_value=True)
-        pool = siderpy.Pool(factory, test=test)
-        assert item == await pool.get()
-        factory.assert_awaited_once()
-        assert len(pool._used) == 1 and item in pool._used
-        assert pool._queue.qsize() == pool._size - 1
-        test.assert_not_called()
-
-    async def test_get_itemtest_true_called(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        test = mock.MagicMock(return_value=True)
-        pool = siderpy.Pool(factory, size=1, test=test)
-        pool._queue.get_nowait()
-        pool._queue.put_nowait(item)
-        assert item == await pool.get()
-        assert len(pool._used) == 1 and item in pool._used
-        assert pool._queue.qsize() == pool._size - 1
-        test.assert_called_once_with(item)
-        factory.assert_not_awaited()
-
-    async def test_get_itemtest_false_called(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        test = mock.MagicMock(return_value=False)
-        pool = siderpy.Pool(factory, size=1, test=test)
-        pool._queue.get_nowait()
-        pool._queue.put_nowait(item)
-        assert item == await pool.get()
-        assert len(pool._used) == 1 and item in pool._used
-        assert pool._queue.qsize() == pool._size - 1
-        test.assert_called_once_with(item)
-        factory.assert_awaited_once()
-
-    async def test_get_timeout(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        test = mock.MagicMock(return_value=False)
-        pool = siderpy.Pool(factory, size=1, test=test)
-        await pool.get()
-        with pytest.raises(asyncio.TimeoutError):
-            await pool.get(timeout=0.1)
-
-    async def test_put(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        pool = siderpy.Pool(factory)
-        o = await pool.get()
-        pool.put(o)
-        assert len(pool._used) == 0
-        assert pool._queue.qsize() == pool._size
-
-    async def test_put_alien(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        pool = siderpy.Pool(factory)
-        await pool.get()
-        alien = object()
-        pool.put(alien)
-        assert len(pool._used) == 1
-        assert pool._queue.qsize() == pool._size - 1
-
-    async def test_close(self):
-        item1 = object()
-        item2 = object()
-        factory = mock.AsyncMock(side_effect=[item1, item2])
-        pool = siderpy.Pool(factory)
-        await pool.get()
-        pool.put(await pool.get())
-        func = mock.MagicMock()
-        pool.close(func)
-        func.assert_has_calls([mock.call(item1), mock.call(item2)])
-
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
 class TestRedis:
@@ -379,13 +243,14 @@ class TestRedis:
         assert redis._read_timeout is None
         assert redis._write_timeout is None
         assert redis._ssl_ctx is None
+        assert redis._conn is None
+        assert redis._conn_lock is not None
         assert redis._proto.__class__ == siderpy.Protocol
         assert redis._pipeline is False
         assert redis._buf == []
-        assert redis._subscriber is None
-        assert redis._subscriber_cb is None
-        assert redis._subscriber_cb is None
-        assert redis._subscriber_channels == set()
+        assert redis._incomming_queue is not None and redis._incomming_queue.empty()
+        assert redis._subscriber_task is None
+        assert redis._subscriber_callbacks == {b'message': {}, b'pmessage': {}}
 
         redis = siderpy.Redis('localhost', port=777, connect_timeout=33, timeout=(10, 20), ssl_ctx=object())
         assert redis._host == 'localhost'
@@ -394,13 +259,14 @@ class TestRedis:
         assert redis._read_timeout == 10
         assert redis._write_timeout == 20
         assert redis._ssl_ctx is not None
+        assert redis._conn is None
+        assert redis._conn_lock is not None
         assert redis._proto.__class__ == siderpy.Protocol
         assert redis._pipeline is False
         assert redis._buf == []
-        assert redis._subscriber is None
-        assert redis._subscriber_cb is None
-        assert redis._subscriber_cb is None
-        assert redis._subscriber_channels == set()
+        assert redis._incomming_queue is not None and redis._incomming_queue.empty()
+        assert redis._subscriber_task is None
+        assert redis._subscriber_callbacks == {b'message': {}, b'pmessage': {}}
 
     def test__str(self):
         redis = siderpy.Redis('localhost')
@@ -408,16 +274,18 @@ class TestRedis:
 
     def test_close_connection(self):
         redis = siderpy.Redis('localhost')
-        redis._pool = mock.MagicMock()
+        mock_conn = mock.MagicMock()
+        redis._conn = mock_conn
         redis.close_connection()
-        redis._pool.close.assert_called_once()
+        mock_conn[1].close.assert_called_once()
+        assert redis._conn is None
 
     def test_pipeline_on(self):
         redis = siderpy.Redis('localhost')
         redis.pipeline_on()
         assert redis._pipeline is True
 
-        redis._subscriber = object()
+        redis._subscriber_task = object()
         with pytest.raises(siderpy.SiderPyError, match='Client in subscribe mode'):
             redis.pipeline_on()
 
@@ -458,20 +326,26 @@ class TestRedis:
                                                port=redis._port,
                                                ssl=redis._ssl_ctx,
                                                ssl_handshake_timeout=None)
-        with mock.patch('asyncio.open_connection') as mock_func:
-            redis = siderpy.Redis('localhost', connect_timeout=33, ssl_ctx=object())
-            await redis._create_connection()
+
+    async def test__create_connection_timeout(self):
+        async def sleep(*args, **kwds):
+            await asyncio.sleep(10)
+        with mock.patch('asyncio.open_connection', side_effect=sleep) as mock_func:
+            redis = siderpy.Redis('localhost', connect_timeout=1, ssl_ctx=object())
+            with pytest.raises(asyncio.TimeoutError):
+                await redis._create_connection()
             mock_func.assert_awaited_once_with(host=redis._host,
                                                port=redis._port,
                                                ssl=redis._ssl_ctx,
                                                ssl_handshake_timeout=redis._connect_timeout)
 
     async def test__read(self):
+        chunk_size = 2048
         r = mock.Mock()
         r.read = mock.AsyncMock(return_value=b'$4\r\nPONG\r\n$3\r\nfoo\r\n')
         redis = siderpy.Redis('localhost')
         data = await redis._read(r)
-        r.read.assert_awaited_once_with(1024)
+        r.read.assert_awaited_once_with(chunk_size)
         assert data == [b'PONG', b'foo']
 
         r = mock.Mock()
@@ -481,44 +355,48 @@ class TestRedis:
         with pytest.raises(ConnectionError):
             await redis._read(r)
 
-        raw_data = b'$1500\r\n' + b'a' * 1500 + b'\r\n'
+        raw_data = (f'${chunk_size+500}\r\n' + 'a' * (chunk_size + 500) + '\r\n').encode()
         r = mock.Mock()
-        r.read = mock.AsyncMock(side_effect=[raw_data[:1024], raw_data[1024:]])
+        r.read = mock.AsyncMock(side_effect=[raw_data[:chunk_size], raw_data[chunk_size:]])
         redis = siderpy.Redis('localhost')
-        assert await redis._read(r) == [b'a' * 1500]
+        assert await redis._read(r) == [b'a' * (chunk_size + 500)]
 
     async def test__execute_cmd_list(self):
         r = mock.Mock()
         w = mock.Mock()
+        w.is_closing = mock.MagicMock(return_value=False)
         w.write = mock.MagicMock()
         w.drain = mock.AsyncMock()
         with mock.patch.object(siderpy.Redis, '_read', return_value=[b'PONG', b'PONG']) as mock_read:
-            with mock.patch.object(siderpy.Pool, 'get', return_value=(r, w)) as mock_get:
-                redis = siderpy.Redis('localhost')
-                data = await redis._execute_cmd_list([b'$4\r\nPING\r\n', b'$4\r\nPING\r\n'])
-                assert data == [b'PONG', b'PONG']
-                mock_get.assert_awaited_once_with(timeout=redis._connect_timeout)
-                mock_read.assert_awaited_once_with(r, count=2)
+            redis = siderpy.Redis('localhost')
+            redis._conn = (r, w)
+            data = await redis._execute_cmd_list([b'$4\r\nPING\r\n', b'$4\r\nPING\r\n'])
+            w.write.assert_called_once_with(b'$4\r\nPING\r\n$4\r\nPING\r\n')
+            assert data == [b'PONG', b'PONG']
+            mock_read.assert_awaited_once_with(r, count=2)
 
     async def test__execute_cmd_list_write_timeout(self):
         r = mock.Mock()
         w = mock.Mock()
+        w.is_closing = mock.MagicMock(return_value=False)
         w.write = mock.MagicMock()
         w.drain = functools.partial(asyncio.sleep, 10)
         w.close = mock.MagicMock()
         w.wait_closed = mock.AsyncMock()
         with mock.patch.object(siderpy.Redis, '_read', return_value=[b'PONG']):
-            with mock.patch.object(siderpy.Pool, 'get', return_value=(r, w)):
-                redis = siderpy.Redis('localhost', timeout=(None, 0.2))
-                with pytest.raises(asyncio.TimeoutError):
-                    await redis._execute_cmd_list([b'$4\r\nPING\r\n'])
-                    w.close.assert_called_once()
-                    w.wait_closed.assert_awaited_once()
+            redis = siderpy.Redis('localhost', timeout=(None, 0.2))
+            redis._conn = (r, w)
+            with pytest.raises(asyncio.TimeoutError):
+                await redis._execute_cmd_list([b'$4\r\nPING\r\n'])
+            w.write.assert_called_once_with(b'$4\r\nPING\r\n')
+            w.close.assert_called_once()
+            w.wait_closed.assert_awaited_once()
 
     async def test__execute_cmd_list_read_timeout(self):
         r = mock.Mock()
         w = mock.Mock()
         w.write = mock.MagicMock()
+        w.is_closing = mock.MagicMock(return_value=False)
         w.drain = mock.AsyncMock()
         w.close = mock.MagicMock()
         w.wait_closed = mock.AsyncMock()
@@ -527,12 +405,127 @@ class TestRedis:
             await asyncio.sleep(10)
 
         with mock.patch.object(siderpy.Redis, '_read', side_effect=sleep):
-            with mock.patch.object(siderpy.Pool, 'get', return_value=(r, w)):
-                redis = siderpy.Redis('localhost', timeout=(0.2, None))
-                with pytest.raises(asyncio.TimeoutError):
-                    await redis._execute_cmd_list([b'$4\r\nPING\r\n'])
-                    w.close.assert_called_once()
-                    w.wait_closed.assert_awaited_once()
+            redis = siderpy.Redis('localhost', timeout=(0.2, None))
+            redis._conn = (r, w)
+            with pytest.raises(asyncio.TimeoutError):
+                await redis._execute_cmd_list([b'$4\r\nPING\r\n'])
+                w.close.assert_called_once()
+                w.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
+class Test_Pool:
+
+    def test__init(self):
+        async def factory():
+            return
+
+        def item_test(*args, **kwds):
+            return
+
+        def on_create(*args, **kwds):
+            return
+
+        pool = siderpy.Pool(factory)
+        assert pool._factory == factory
+        assert pool._size == siderpy.POOL_SIZE
+        assert pool._item_test is None
+        assert pool._on_create is None
+        assert isinstance(pool._queue, asyncio.LifoQueue)
+        assert pool._queue.maxsize == pool._size
+        assert pool._queue.qsize() == pool._size
+        assert len(pool._used) == 0
+
+        pool = siderpy.Pool(factory, size=10, item_test=item_test, on_create=on_create)
+        assert pool._factory == factory
+        assert pool._size == 10
+        assert pool._item_test == item_test
+        assert pool._on_create == on_create
+        assert isinstance(pool._queue, asyncio.LifoQueue)
+        assert pool._queue.maxsize == 10
+        assert pool._queue.qsize() == 10
+        assert len(pool._used) == 0
+
+    def test__str(self):
+        pool = siderpy.Pool(lambda *args: args)
+        assert str(pool) == '<siderpy.Pool size {}, available {} [{}]>'.format(
+                siderpy.POOL_SIZE, siderpy.POOL_SIZE, hex(id(pool)))
+
+    async def test_get(self):
+        item = object()
+        factory = mock.AsyncMock(return_value=item)
+        pool = siderpy.Pool(factory)
+        assert item == await pool.get()
+        factory.assert_awaited_once()
+        assert len(pool._used) == 1 and item in pool._used
+        assert pool._queue.qsize() == pool._size - 1
+
+    async def test_get_itemtest_not_called(self):
+        item = object()
+        factory = mock.AsyncMock(return_value=item)
+        item_test = mock.MagicMock(return_value=True)
+        pool = siderpy.Pool(factory, item_test=item_test)
+        assert item == await pool.get()
+        factory.assert_awaited_once()
+        assert len(pool._used) == 1 and item in pool._used
+        assert pool._queue.qsize() == pool._size - 1
+        item_test.assert_not_called()
+
+    async def test_get_itemtest_true_called(self):
+        item = object()
+        factory = mock.AsyncMock(return_value=item)
+        item_test = mock.MagicMock(return_value=True)
+        pool = siderpy.Pool(factory, size=1, item_test=item_test)
+        pool._queue.get_nowait()
+        pool._queue.put_nowait(item)
+        assert item == await pool.get()
+        assert len(pool._used) == 1 and item in pool._used
+        assert pool._queue.qsize() == pool._size - 1
+        item_test.assert_called_once_with(item)
+        factory.assert_not_awaited()
+
+    async def test_get_itemtest_false_called(self):
+        item = object()
+        factory = mock.AsyncMock(return_value=item)
+        item_test = mock.MagicMock(return_value=False)
+        pool = siderpy.Pool(factory, size=1, item_test=item_test)
+        pool._queue.get_nowait()
+        pool._queue.put_nowait(item)
+        assert item == await pool.get()
+        assert len(pool._used) == 1 and item in pool._used
+        assert pool._queue.qsize() == pool._size - 1
+        item_test.assert_called_once_with(item)
+        factory.assert_awaited_once()
+
+    async def test_put(self):
+        item = object()
+        factory = mock.AsyncMock(return_value=item)
+        pool = siderpy.Pool(factory)
+        o = await pool.get()
+        pool.put(o)
+        assert len(pool._used) == 0
+        assert pool._queue.qsize() == pool._size
+
+    async def test_put_alien(self):
+        item = object()
+        factory = mock.AsyncMock(return_value=item)
+        pool = siderpy.Pool(factory)
+        await pool.get()
+        alien = object()
+        pool.put(alien)
+        assert len(pool._used) == 1
+        assert pool._queue.qsize() == pool._size - 1
+
+    async def test_close(self):
+        item1 = object()
+        item2 = object()
+        factory = mock.AsyncMock(side_effect=[item1, item2])
+        pool = siderpy.Pool(factory)
+        await pool.get()
+        pool.put(await pool.get())
+        func = mock.MagicMock()
+        pool.close(func)
+        func.assert_has_calls([mock.call(item1), mock.call(item2)])
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")

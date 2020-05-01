@@ -57,5 +57,5 @@ services:
       - "haproxy"
     command:
       bash -c "
-        pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests_small.py --cov &&
-        pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py"
+        pytest --timeout=30 -sv /opt/siderpy/tests/tests_small.py --cov &&
+        pytest --timeout=30 -sv /opt/siderpy/tests/tests_medium.py"

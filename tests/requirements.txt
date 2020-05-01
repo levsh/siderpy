@@ -1,5 +1,7 @@
 docker
 pytest
 pytest-asyncio
-pytest-timeout
+pytest-benchmark
 pytest-cov
+pytest-timeout
+uvloop

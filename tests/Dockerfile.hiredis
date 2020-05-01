@@ -1,0 +1,5 @@
+ARG from
+
+FROM $from
+
+RUN pip install hiredis aioredis

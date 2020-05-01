@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, dev ]
   pull_request:
     branches: [ master ]
 
@@ -20,6 +20,7 @@ jobs:
       run: |
         /bin/bash docker-build.sh
         docker pull redis:latest
+        docker pull redis:6
         docker pull haproxy:latest
     - name: Install requirements
       run: |
