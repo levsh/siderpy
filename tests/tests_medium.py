@@ -202,19 +202,22 @@ class TestRedis:
     async def test_subscribe1(self, event_loop, prepare, redis):
         messages = []
 
-        async def consumer(data):
+        async def callback(data):
             topic, channel, message = data
             messages.append(message)
 
-        resp = await redis.subscribe(consumer, 'channel1', 'channel2')
+        resp = await redis.subscribe(callback, 'channel1', 'channel2')
+        assert resp == [[b'subscribe', b'channel1', 1], [b'subscribe', b'channel2', 2]]
         resp = await redis.unsubscribe()
-        assert resp is None
+        assert resp == [[b'unsubscribe', b'channel1', 1], [b'unsubscribe', b'channel2', 0]] or \
+               resp == [[b'unsubscribe', b'channel2', 1], [b'unsubscribe', b'channel1', 0]]
+        assert redis._subscriber_task is None
         assert messages == []
 
     async def test_subscribe2(self, event_loop, prepare, pool):
         messages = []
 
-        async def consumer(data):
+        async def callback(data):
             topic, channel, message = data
             messages.append(message)
 
@@ -225,7 +228,7 @@ class TestRedis:
                 await redis.publish('channel2', 'message3')
 
         async with pool.get_redis() as redis:
-            await redis.subscribe(consumer, 'channel1', 'channel2')
+            await redis.subscribe(callback, 'channel1', 'channel2')
             await asyncio.wait({asyncio.create_task(producer())})
             await asyncio.sleep(1)
             await redis.unsubscribe()
@@ -239,8 +242,11 @@ class TestRedis:
             messages.append(message)
 
         resp = await redis.psubscribe(consumer, 'channel1.*', 'channel2.*')
+        assert resp == [[b'psubscribe', b'channel1.*', 1], [b'psubscribe', b'channel2.*', 2]]
         resp = await redis.punsubscribe()
-        assert resp is None
+        assert resp == [[b'punsubscribe', b'channel1.*', 1], [b'punsubscribe', b'channel2.*', 0]] or \
+               resp == [[b'punsubscribe', b'channel1.*', 0], [b'punsubscribe', b'channel2.*', 1]]
+        assert redis._subscriber_task is None
         assert messages == []
 
     async def test_psubscribe2(self, event_loop, prepare, pool):
