@@ -63,7 +63,7 @@ def container_executor():
 @pytest.fixture(scope='function')
 def redis(container_executor):
     yield container_executor.run_wait_up(
-            'redis:latest',
+            'redis:6',
             command='redis-server --save "" --appendonly no')
 
 
