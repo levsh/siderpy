@@ -2,7 +2,7 @@
 
 Minimalistic Python asyncio Redis client library
 
-**master** ![tests](https://github.com/levsh/siderpy/workflows/tests/badge.svg)
+**master** ![tests](https://github.com/levsh/siderpy/workflows/tests/badge.svg) [![Documentation Status](https://readthedocs.org/projects/siderpy/badge/?version=latest)](https://siderpy.readthedocs.io/en/latest/?badge=latest)
 
 ## Installation
 

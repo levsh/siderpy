@@ -203,7 +203,7 @@ class Redis:
     Examples:
 
         >>> import siderpy
-        >>> pool = siderpy.Redis('localhost', port=6379)
+        >>> redis = siderpy.Redis('localhost', port=6379)
         >>> await redis.ping()
         >>> redis.close_connection()
 
@@ -211,7 +211,7 @@ class Redis:
 
         >>> await redis.select(0)
 
-    MULTI/EXEC
+    multi/exec
 
         >>> await redis.multi()
         >>> await redis.set('key', 'value')
