@@ -196,71 +196,6 @@ class Protocol:
             out = []
 
 
-class Pool:
-
-    __slots__ = ('_factory', '_size', '_item_test', '_on_create', '_queue', '_used')
-
-    def __init__(self,
-                 factory: tp.Coroutine,
-                 size: int = POOL_SIZE,
-                 item_test: tp.Callable = None,
-                 on_create: tp.Callable = None):
-        self._factory = factory
-        self._size = size
-        self._item_test = item_test
-        self._on_create = on_create
-        self._queue = asyncio.LifoQueue(maxsize=self._size)
-        self._used = set()
-        for _ in range(self._size):
-            self._queue.put_nowait(None)
-
-    def __str__(self):
-        return '<{}.{} size {}, available {} [{}]>'.format(
-            self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self)))
-
-    def __repr__(self):
-        return self.__str__()
-
-    async def get(self):
-        item = await self._queue.get()
-        if item is None or self._item_test and not self._item_test(item):
-            try:
-                item = await self._factory()
-                if callable(self._on_create):
-                    self._on_create(item)
-            except (asyncio.CancelledError, Exception) as e:
-                self._queue.put_nowait(None)
-                raise e
-        self._used.add(item)
-        # LOG.debug('%s get %s', self, item)
-        return item
-
-    def put(self, item):
-        if item in self._used:
-            # LOG.debug('%s put %s', self, item)
-            self._used.remove(item)
-            self._queue.put_nowait(item)
-
-    @contextlib.asynccontextmanager
-    async def get_item(self, timeout: float = None):
-        if timeout is not None:
-            item = await asyncio.wait_for(self.get(), timeout)
-        else:
-            item = await self.get()
-        try:
-            yield item
-        finally:
-            self.put(item)
-
-    def close(self, func: tp.Callable):
-        for item in self._used:
-            func(item)
-        while self._queue.qsize():
-            item = self._queue.get_nowait()
-            if item is not None:
-                func(item)
-
-
 class Redis:
     """Class representing a single connection to a Redis server.
     Connection to the server is established automatically during the first request.
@@ -477,7 +412,7 @@ class Redis:
                 if len(data) == 1:
                     data = data[0]
             except (asyncio.CancelledError, Exception) as e:
-                LOG.warning('%s close connection %s', self, w)
+                LOG.debug('%s close connection %s', self, w)
                 w.close()
                 await w.wait_closed()
                 self._conn = None
@@ -504,7 +439,7 @@ class Redis:
                 try:
                     data = await asyncio.wait_for(self._read(self._conn[0]), self._read_timeout)
                 except Exception as e:
-                    LOG.warning('%s %s %s', self, e.__class__.__name__, e)
+                    LOG.debug('%s %s %s', self, e.__class__.__name__, e)
                     await self._safe_call_callback(e)
                     raise e
                 incomming_data = []
@@ -526,10 +461,10 @@ class Redis:
                         incomming_data.append(message[0])
                         continue
                     if message[0] == b'unsubscribe':
-                        self._subscriber_channels[b'message'].remove(message[1])
+                        self._subscriber_channels[b'message'].discard(message[1])
                         incomming_data.append(message)
                     elif message[0] == b'punsubscribe':
-                        self._subscriber_channels[b'pmessage'].remove(message[1])
+                        self._subscriber_channels[b'pmessage'].discard(message[1])
                         incomming_data.append(message)
                     else:
                         raise ValueError('Unknown pubsub message type %s' % message[0])
@@ -570,6 +505,68 @@ class Redis:
         return functools.partial(self._execute, cmd_name)
 
 
+class Pool:
+
+    __slots__ = ('_factory', '_size', '_queue', '_used')
+
+    def __init__(self, factory: tp.Coroutine, size: int = POOL_SIZE):
+        self._factory = factory
+        self._size = size
+        self._queue = asyncio.LifoQueue(maxsize=self._size)
+        self._used = set()
+        for _ in range(self._size):
+            self._queue.put_nowait(None)
+
+    def __str__(self):
+        return '<{}.{} size {}, available {} [{}]>'.format(
+            self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self)))
+
+    def __repr__(self):
+        return self.__str__()
+
+    async def get(self):
+        if self._queue.qsize():
+            item = self._queue.get_nowait()
+        else:
+            item = await self._queue.get()
+        if item is None:
+            try:
+                item = await self._factory()
+            except (asyncio.CancelledError, Exception) as e:
+                self._queue.put_nowait(None)
+                raise e
+        self._used.add(item)
+        # LOG.debug('%s get %s', self, item)
+        return item
+
+    def put(self, item):
+        # LOG.debug('%s put %s', self, item)
+        if item in self._used:
+            self._used.remove(item)
+            self._queue.put_nowait(item)
+
+    @contextlib.asynccontextmanager
+    async def get_item(self, timeout: float = None):
+        if timeout is None:
+            item = await self.get()
+        else:
+            item = await asyncio.wait_for(self.get(), timeout)
+        try:
+            yield item
+        finally:
+            # LOG.debug('%s put %s', self, item)
+            self._used.remove(item)
+            self._queue.put_nowait(item)
+
+    def close(self, func: tp.Callable):
+        for item in self._used:
+            func(item)
+        while self._queue.qsize():
+            item = self._queue.get_nowait()
+            if item is not None:
+                func(item)
+
+
 class RedisPool:
     """Class representing a pool of connections to a Redis server
 
@@ -587,6 +584,7 @@ class RedisPool:
                  connect_timeout: float = CONNECT_TIMEOUT,
                  timeout: tp.Union[float, tuple, list] = None,
                  size: int = POOL_SIZE,
+                 pool_cls=Pool,
                  ssl_ctx: ssl.SSLContext = None):
         """
         Args:
@@ -607,7 +605,7 @@ class RedisPool:
             self._write_timeout = timeout
         self._size = size
         self._ssl_ctx = ssl_ctx
-        self._pool = Pool(self._factory, size=size)
+        self._pool = pool_cls(self._factory, size=size)
 
     def __str__(self):
         return '<{}.{} ({}, {}) {} [{}]>'.format(

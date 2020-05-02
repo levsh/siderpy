@@ -48,8 +48,16 @@ def siderpy_teardown(loop, redis):
     redis.close_connection()
 
 
+def siderpy_pool_setup(loop):
+    return siderpy.RedisPool(REDIS_HOST, port=REDIS_PORT)
+
+
+def siderpy_pool_teardown(loop, redis):
+    redis.close_connections()
+
+
 def aioredis_setup(loop):
-    aw = aioredis.create_redis_pool('redis://{}:{}'.format(REDIS_HOST, REDIS_PORT))
+    aw = aioredis.create_redis('redis://{}:{}'.format(REDIS_HOST, REDIS_PORT))
     return loop.run_until_complete(aw)
 
 
@@ -58,9 +66,16 @@ def aioredis_teardown(loop, redis):
     loop.run_until_complete(redis.wait_closed())
 
 
+def aioredis_pool_setup(loop):
+    aw = aioredis.create_redis_pool('redis://{}:{}'.format(REDIS_HOST, REDIS_PORT))
+    return loop.run_until_complete(aw)
+
+
 @pytest.fixture(params=[
             pytest.param((aioredis_setup, aioredis_teardown), id='aioredis'),
+            pytest.param((aioredis_pool_setup, aioredis_teardown), id='aioredis_pool'),
             pytest.param((siderpy_setup, siderpy_teardown), id='siderpy'),
+            pytest.param((siderpy_pool_setup, siderpy_pool_teardown), id='siderpy_pool'),
         ],
         scope='function')
 def redis(event_loop, request):
@@ -120,11 +135,11 @@ class TestBenchmark:
         benchmark(execute, event_loop, 5, call)
 
     @pytest.mark.benchmark(
-        group='set_mget',
+        group='mget',
         disable_gc=True,
         min_rounds=50,
     )
-    def test_get_set_mget(self, event_loop, gc_collect, benchmark, redis):
+    def test_mget(self, event_loop, gc_collect, benchmark, redis):
         async def call():
             count = 250
             keys = [f'key{i}' for i in range(count)]

@@ -422,27 +422,17 @@ class Test_Pool:
         async def factory():
             return
 
-        def item_test(*args, **kwds):
-            return
-
-        def on_create(*args, **kwds):
-            return
-
         pool = siderpy.Pool(factory)
         assert pool._factory == factory
         assert pool._size == siderpy.POOL_SIZE
-        assert pool._item_test is None
-        assert pool._on_create is None
         assert isinstance(pool._queue, asyncio.LifoQueue)
         assert pool._queue.maxsize == pool._size
         assert pool._queue.qsize() == pool._size
         assert len(pool._used) == 0
 
-        pool = siderpy.Pool(factory, size=10, item_test=item_test, on_create=on_create)
+        pool = siderpy.Pool(factory, size=10)
         assert pool._factory == factory
         assert pool._size == 10
-        assert pool._item_test == item_test
-        assert pool._on_create == on_create
         assert isinstance(pool._queue, asyncio.LifoQueue)
         assert pool._queue.maxsize == 10
         assert pool._queue.qsize() == 10
@@ -461,43 +451,6 @@ class Test_Pool:
         factory.assert_awaited_once()
         assert len(pool._used) == 1 and item in pool._used
         assert pool._queue.qsize() == pool._size - 1
-
-    async def test_get_itemtest_not_called(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        item_test = mock.MagicMock(return_value=True)
-        pool = siderpy.Pool(factory, item_test=item_test)
-        assert item == await pool.get()
-        factory.assert_awaited_once()
-        assert len(pool._used) == 1 and item in pool._used
-        assert pool._queue.qsize() == pool._size - 1
-        item_test.assert_not_called()
-
-    async def test_get_itemtest_true_called(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        item_test = mock.MagicMock(return_value=True)
-        pool = siderpy.Pool(factory, size=1, item_test=item_test)
-        pool._queue.get_nowait()
-        pool._queue.put_nowait(item)
-        assert item == await pool.get()
-        assert len(pool._used) == 1 and item in pool._used
-        assert pool._queue.qsize() == pool._size - 1
-        item_test.assert_called_once_with(item)
-        factory.assert_not_awaited()
-
-    async def test_get_itemtest_false_called(self):
-        item = object()
-        factory = mock.AsyncMock(return_value=item)
-        item_test = mock.MagicMock(return_value=False)
-        pool = siderpy.Pool(factory, size=1, item_test=item_test)
-        pool._queue.get_nowait()
-        pool._queue.put_nowait(item)
-        assert item == await pool.get()
-        assert len(pool._used) == 1 and item in pool._used
-        assert pool._queue.qsize() == pool._size - 1
-        item_test.assert_called_once_with(item)
-        factory.assert_awaited_once()
 
     async def test_put(self):
         item = object()
