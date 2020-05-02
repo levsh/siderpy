@@ -240,11 +240,11 @@ class TestRedis:
     async def test_psubscribe1(self, event_loop, prepare, redis):
         messages = []
 
-        async def consumer(data):
+        async def callback(data):
             topic, pattern, channel, message = data
             messages.append(message)
 
-        resp = await redis.psubscribe(consumer, 'channel1.*', 'channel2.*')
+        resp = await redis.psubscribe(callback, 'channel1.*', 'channel2.*')
         assert resp == [[b'psubscribe', b'channel1.*', 1], [b'psubscribe', b'channel2.*', 2]]
         resp = await redis.punsubscribe()
         assert resp == [[b'punsubscribe', b'channel1.*', 1], [b'punsubscribe', b'channel2.*', 0]] or \
@@ -292,3 +292,47 @@ class TestRedis:
             await redis.unsubscribe()
             await redis.punsubscribe()
         assert messages == [b'message1', b'message1', b'message2']
+
+    async def test_subscribe_and_ping(self, event_loop, prepare, pool):
+        messages = []
+
+        async def callback(data):
+            messages.append(data)
+
+        async with pool.get_redis() as redis:
+            resp = await redis.subscribe(callback, 'channel1', 'channel2')
+            assert resp == [[b'subscribe', b'channel1', 1], [b'subscribe', b'channel2', 2]]
+
+            async with pool.get_redis() as producer:
+                await producer.publish('channel1', 'Hello World!')
+
+            resp = await redis.ping()
+            assert resp == b'pong'
+
+            resp = await redis.unsubscribe()
+            assert resp == [[b'unsubscribe', b'channel1', 1], [b'unsubscribe', b'channel2', 0]] or \
+                   resp == [[b'unsubscribe', b'channel2', 1], [b'unsubscribe', b'channel1', 0]]
+            assert redis._subscriber_task is None
+            assert messages == [[b'message', b'channel1', b'Hello World!']]
+
+    async def test_subscribe_exc(self, event_loop, prepare, pool):
+        messages = []
+
+        async def callback(data):
+            topic, channel, message = data
+            messages.append(message)
+
+        async with pool.get_redis() as redis:
+            resp = await redis.subscribe(callback, 'channel1', 'channel2')
+            assert resp == [[b'subscribe', b'channel1', 1], [b'subscribe', b'channel2', 2]]
+
+            with pytest.raises(siderpy.RedisError,
+                               match=(r"ERR Can't execute 'get': only \(P\)SUBSCRIBE / \(P\)UNSUBSCRIBE / PING / QUIT "
+                                      "are allowed in this context")):
+                await redis.get('key')
+
+            resp = await redis.unsubscribe()
+            assert resp == [[b'unsubscribe', b'channel1', 1], [b'unsubscribe', b'channel2', 0]] or \
+                   resp == [[b'unsubscribe', b'channel2', 1], [b'unsubscribe', b'channel1', 0]]
+            assert redis._subscriber_task is None
+            assert messages == []

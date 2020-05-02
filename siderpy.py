@@ -285,8 +285,8 @@ class Redis:
     """
 
     __slots__ = ('_host', '_port', '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx',
-                 '_conn', '_conn_lock', '_proto', '_pipeline', '_buf', '_incomming_queue',
-                 '_subscriber_task', '_subscriber_callbacks')
+                 '_conn', '_conn_lock', '_proto', '_pipeline', '_buf', '_future',
+                 '_subscriber_task', '_subscriber_callback', '_subscriber_channels')
 
     def __init__(self,
                  host: str,
@@ -337,9 +337,10 @@ class Redis:
         self._proto = Protocol()
         self._pipeline = False
         self._buf = []
-        self._incomming_queue = asyncio.Queue()
+        self._future = asyncio.get_event_loop().create_future()
         self._subscriber_task = None
-        self._subscriber_callbacks = {b'message': {}, b'pmessage': {}}
+        self._subscriber_callback = None
+        self._subscriber_channels = {b'message': set(), b'pmessage': set()}
 
     def __str__(self):
         return '<{}.{} ({}, {}) [{}]>'.format(
@@ -350,6 +351,8 @@ class Redis:
 
     def close_connection(self):
         """Close established connection"""
+        if self._subscriber_task:
+            self._subscriber_task.cancel()
         if self._conn is not None:
             self._conn[1].close()
             self._conn = None
@@ -425,18 +428,18 @@ class Redis:
         if self._subscriber_task:
             self._subscriber_task.cancel()
             self._subscriber_task = None
-            self._subscriber_callbacks[b'message'].clear()
-            self._subscriber_callbacks[b'pmessage'].clear()
+            self._subscriber_channels[b'message'].clear()
+            self._subscriber_channels[b'pmessage'].clear()
 
     async def _read(self, r: asyncio.StreamReader, count: int = 1) -> tp.List[bytes]:
         out = []
         proto = self._proto
         while len(out) < count:
             raw = await r.read(2048)
-            # pylint: disable=protected-access
-            LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
             if raw == b'' and r.at_eof():
                 raise ConnectionError
+            # pylint: disable=protected-access
+            LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
             proto.feed(raw)
             while True:
                 data = proto.gets()
@@ -455,6 +458,8 @@ class Redis:
             cmd_count = len(cmd_list)
             bytestring = b''.join(cmd_list)
             LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), bytestring)
+            if self._subscriber_task is not None:
+                self._future = asyncio.get_event_loop().create_future()
             try:
                 w.write(bytestring)
                 if self._write_timeout is not None:
@@ -464,22 +469,22 @@ class Redis:
                 if self._subscriber_task is None:
                     aw = self._read(r, count=cmd_count)
                 else:
-                    aw = self._incomming_queue.get()
+                    aw = self._future
                 if self._read_timeout is None:
                     data = await aw
                 else:
                     data = await asyncio.wait_for(aw, self._read_timeout)
                 if len(data) == 1:
                     data = data[0]
-                if isinstance(data, Exception):
-                    raise RedisError(data)
-                return data
             except (asyncio.CancelledError, Exception) as e:
                 LOG.warning('%s close connection %s', self, w)
                 w.close()
                 await w.wait_closed()
                 self._conn = None
                 raise e
+            if isinstance(data, Exception):
+                raise RedisError(data)
+            return data
 
     async def _execute(self, cmd_name: str, *args):
         cmd = self._proto.make_cmd(cmd_name, args)
@@ -487,10 +492,11 @@ class Redis:
             return await self._execute_cmd_list([cmd])
         self._buf.append(cmd)
 
-    def _callbacks_iter(self):
-        for _, values in self._subscriber_callbacks.items():
-            for _, callback in values.items():
-                yield callback
+    async def _safe_call_callback(self, arg):
+        try:
+            return await self._subscriber_callback(arg)
+        except Exception as e:
+            LOG.error('%s subscriber callback error. %s %s', self, e.__class__.__name__, e)
 
     async def _listen(self):
         try:
@@ -498,55 +504,56 @@ class Redis:
                 try:
                     data = await asyncio.wait_for(self._read(self._conn[0]), self._read_timeout)
                 except Exception as e:
-                    LOG.warning('%s %s', e.__class__.__name__, e)
-                    for callback in self._callbacks_iter():
-                        try:
-                            await callback(e)
-                        except Exception as ee:
-                            LOG.error('%s %s', ee.__class__.__name__, ee)
+                    LOG.warning('%s %s %s', self, e.__class__.__name__, e)
+                    await self._safe_call_callback(e)
                     raise e
-                if isinstance(data, Exception):
-                    await self._incomming_queue.put(data)
-                    continue
                 incomming_data = []
                 for message in data:
-                    if message[0] in {b'message', b'pmessage'}:
-                        try:
-                            await self._subscriber_callbacks[message[0]][message[1]](message)
-                        except Exception as e:
-                            LOG.error('%s %s', e.__class__.__name__, e)
+                    if isinstance(message, Exception):
+                        if not self._future.done():
+                            self._future.set_result([message])
+                        else:
+                            arg = SiderPyError('Unexpected error from Redis server. %s' % message)
+                            await self._safe_call_callback(arg)
                         continue
-                    if message[0] in {b'subscribe', b'psubscribe'} or message[1] == b'':
+                    if message[0] in {b'message', b'pmessage'}:
+                        await self._safe_call_callback(message)
+                        continue
+                    if message[0] in {b'subscribe', b'psubscribe'}:
                         incomming_data.append(message)
+                        continue
+                    if message[1] == b'':
+                        incomming_data.append(message[0])
                         continue
                     if message[0] == b'unsubscribe':
-                        del self._subscriber_callbacks[b'message'][message[1]]
+                        self._subscriber_channels[b'message'].remove(message[1])
                         incomming_data.append(message)
                     elif message[0] == b'punsubscribe':
-                        del self._subscriber_callbacks[b'pmessage'][message[1]]
+                        self._subscriber_channels[b'pmessage'].remove(message[1])
                         incomming_data.append(message)
                     else:
                         raise ValueError('Unknown pubsub message type %s' % message[0])
                 if incomming_data:
-                    await self._incomming_queue.put(incomming_data)
-                if not (self._subscriber_callbacks[b'message'] or self._subscriber_callbacks[b'pmessage']):
+                    self._future.set_result(incomming_data)
+                if not (self._subscriber_channels[b'message'] or self._subscriber_channels[b'pmessage']):
                     self._subscriber_task = None
                     return
         except Exception as e:
             LOG.exception(e)
+            if self._future and not self._future.done():
+                self._future.set_exception(e)
 
     async def _subscribe(self, cmd_name: str, callback: tp.Callable, *channels):
+        self._subscriber_callback = callback
         key = {'subscribe': b'message', 'psubscribe': b'pmessage'}[cmd_name]
-        self._subscriber_callbacks[key].update(
-            {channel.encode() if isinstance(channel, str) else channel: callback for channel in channels})
+        self._subscriber_channels[key].update(
+            {channel.encode() if isinstance(channel, str) else channel for channel in channels})
         if self._subscriber_task is None:
             async with self._conn_lock:
                 if self._conn is None or self._conn[1].is_closing():
                     self._conn = await self._create_connection()
             self._subscriber_task = asyncio.create_task(self._listen())
-        new_channels = tuple(channel for channel in channels
-                             if channel not in set(self._subscriber_callbacks[key].values()))
-        return await self._execute(cmd_name, *tuple(new_channels))
+        return await self._execute(cmd_name, *channels)
 
     async def _unsubscribe(self, cmd_name: str, *channels):
         return await self._execute(cmd_name, *channels)

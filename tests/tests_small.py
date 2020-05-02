@@ -248,9 +248,10 @@ class TestRedis:
         assert redis._proto.__class__ == siderpy.Protocol
         assert redis._pipeline is False
         assert redis._buf == []
-        assert redis._incomming_queue is not None and redis._incomming_queue.empty()
+        assert redis._future is not None and redis._future.done() is False
         assert redis._subscriber_task is None
-        assert redis._subscriber_callbacks == {b'message': {}, b'pmessage': {}}
+        assert redis._subscriber_callback is None
+        assert redis._subscriber_channels == {b'message': set(), b'pmessage': set()}
 
         redis = siderpy.Redis('localhost', port=777, connect_timeout=33, timeout=(10, 20), ssl_ctx=object())
         assert redis._host == 'localhost'
@@ -264,9 +265,10 @@ class TestRedis:
         assert redis._proto.__class__ == siderpy.Protocol
         assert redis._pipeline is False
         assert redis._buf == []
-        assert redis._incomming_queue is not None and redis._incomming_queue.empty()
+        assert redis._future is not None and redis._future.done() is False
         assert redis._subscriber_task is None
-        assert redis._subscriber_callbacks == {b'message': {}, b'pmessage': {}}
+        assert redis._subscriber_callback is None
+        assert redis._subscriber_channels == {b'message': set(), b'pmessage': set()}
 
     def test__str(self):
         redis = siderpy.Redis('localhost')
