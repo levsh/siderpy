@@ -49,7 +49,7 @@ def siderpy_teardown(loop, redis):
 
 
 def siderpy_pool_setup(loop):
-    return siderpy.RedisPool(REDIS_HOST, port=REDIS_PORT)
+    return siderpy.RedisPool(f'redis://{REDIS_HOST}:{REDIS_PORT}')
 
 
 def siderpy_pool_teardown(loop, redis):
@@ -73,9 +73,9 @@ def aioredis_pool_setup(loop):
 
 @pytest.fixture(params=[
             pytest.param((aioredis_setup, aioredis_teardown), id='aioredis'),
-            # pytest.param((aioredis_pool_setup, aioredis_teardown), id='aioredis_pool'),
+            pytest.param((aioredis_pool_setup, aioredis_teardown), id='aioredis_pool'),
             pytest.param((siderpy_setup, siderpy_teardown), id='siderpy'),
-            # pytest.param((siderpy_pool_setup, siderpy_pool_teardown), id='siderpy_pool'),
+            pytest.param((siderpy_pool_setup, siderpy_pool_teardown), id='siderpy_pool'),
         ],
         scope='function')
 def redis(event_loop, request):
