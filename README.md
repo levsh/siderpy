@@ -22,7 +22,7 @@ Basic
 ```python
 In [1]: import siderpy                                                                                                                                                                                
 
-In [2]: redis = siderpy.Redis('localhost', port=6379)                                                                                                                                                   
+In [2]: redis = siderpy.Redis('redis://localhost:6379')                                                                                                                                                   
 
 In [3]: await redis.select(1)                                                                                                                                                                           
 Out[3]: b'OK'
@@ -38,10 +38,6 @@ In [6]: redis.close_connection()
 
 Multi
 ```python
-In [1]: import siderpy                                                                                                                                                                                
-
-In [2]: redis = siderpy.Redis('localhost', port=6379)                                                                                                                                                   
-
 In [3]: await redis.multi()                                                                                                                                                                             
 Out[3]: b'OK'
 
@@ -53,16 +49,10 @@ Out[5]: b'QUEUED'
 
 In [6]: await redis.execute()                                                                                                                                                                           
 Out[6]: [b'OK', b'OK']
-
-In [6]: redis.close_connection()
 ```
 
 Pipeline
 ```python
-In [1]: import siderpy                                                                                                                                                                                
-
-In [2]: redis = siderpy.Redis('localhost', port=6379)                                                                                                                                                   
-
 In [3]: redis.pipeline_on()                                                                                                                                                                             
 
 In [4]: await redis.ping()                                                                                                                                                                              
@@ -75,20 +65,24 @@ In [7]: await redis.pipeline_execute()
 Out[7]: [b'PONG', b'OK', b'value']
 
 In [8]: redis.pipeline_off()                                                                                                                                                                            
-
-In [9]: redis.close_connection()
 ```
 
 Pub/Sub
 ```python
-NotImplementedError
+In [3]: await redis.subscribe('channel')                                                                                                                                                            
+Out[3]: [b'subscribe', b'channel', 1]
+
+In [4]: async for message in redis: 
+   ...:     print(message)                                                                                                                                                                          
+   ...:     await redis.unsubscribe()
+[b'message', b'channel', b'Hello from other client!']
 ```
 
 Sentinel
 ```python
 In [1]: import siderpy                                                                                                                                                                                
 
-In [2]: redis = siderpy.Redis('localhost', port=26379)                                                                                                                                                  
+In [2]: redis = siderpy.Redis('redis://localhost:26379')                                                                                                                                                  
 
 In [3]: await redis.sentinel('masters')                                                                                                                                                                 
 Out[3]: 
@@ -99,8 +93,6 @@ Out[3]:
   b'port',
   b'6379',
   ...
-
-In [4]: redis.close_connection()
 ```
 
 Pool
@@ -108,7 +100,7 @@ Pool
 
 In [1]: import siderpy                                                                                                                                                                                
 
-In [2]: pool = siderpy.RedisPool('localhost', port=6379, size=10)                                                                                                                                     
+In [2]: pool = siderpy.RedisPool('redis://localhost', size=10)                                                                                                                                     
 
 In [3]: await pool.ping()                                                                                                                                                                             
 Out[3]: b'PONG'
@@ -124,6 +116,4 @@ In [6]: # or
 In [7]: async with pool.get_redis() as redis: 
    ...:     print(await redis.ping())                                                                                                                                                                 
 b'PONG'
-
-In [8]: pool.close_connections()
 ```
