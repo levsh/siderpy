@@ -41,7 +41,7 @@ def event_loop(request):
 
 
 def siderpy_setup(loop):
-    return siderpy.Redis(REDIS_HOST, port=REDIS_PORT)
+    return siderpy.Redis(f'redis://{REDIS_HOST}:{REDIS_PORT}')
 
 
 def siderpy_teardown(loop, redis):
@@ -49,7 +49,7 @@ def siderpy_teardown(loop, redis):
 
 
 def siderpy_pool_setup(loop):
-    return siderpy.RedisPool(REDIS_HOST, port=REDIS_PORT)
+    return siderpy.RedisPool(f'redis://{REDIS_HOST}:{REDIS_PORT}')
 
 
 def siderpy_pool_teardown(loop, redis):
@@ -57,7 +57,7 @@ def siderpy_pool_teardown(loop, redis):
 
 
 def aioredis_setup(loop):
-    aw = aioredis.create_redis('redis://{}:{}'.format(REDIS_HOST, REDIS_PORT))
+    aw = aioredis.create_redis(f'redis://{REDIS_HOST}:{REDIS_PORT}')
     return loop.run_until_complete(aw)
 
 

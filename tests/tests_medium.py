@@ -34,7 +34,7 @@ def redis():
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
-    redis = siderpy.Redis(REDIS_HOST, port=REDIS_PORT, ssl_ctx=ssl_ctx)
+    redis = siderpy.Redis(f'redis://{REDIS_HOST}:{REDIS_PORT}', ssl_ctx=ssl_ctx)
     try:
         yield redis
     finally:
@@ -54,7 +54,7 @@ def pool():
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.load_verify_locations(os.path.join(os.path.dirname(__file__), 'domain.crt'))
-    pool = siderpy.RedisPool(REDIS_HOST, port=REDIS_PORT, ssl_ctx=ssl_ctx, size=4)
+    pool = siderpy.RedisPool(f'redis://{REDIS_HOST}:{REDIS_PORT}', ssl_ctx=ssl_ctx, size=4)
     try:
         yield pool
     finally:
@@ -135,21 +135,6 @@ class TestRedis:
         resp = await redis.rpop('list')
         assert resp == b'c'
 
-    async def test_blpop(self, event_loop, prepare, pool):
-
-        async def push_coro():
-            await asyncio.sleep(1)
-            await pool.lpush('list', 'value')
-
-        asyncio.create_task(push_coro())
-
-        resp = await pool.blpop('list', 10000)
-        assert resp == [b'list', b'value']
-
-    async def test_xadd(self, event_loop, prepare, redis):
-        resp = await redis.xadd(*'mystream 111 sensor-id 1234 temperature 19.8'.split())
-        assert resp == b'111-0'
-
     async def test_multi(self, event_loop, prepare, redis):
         await redis.multi()
         await redis.set('key1', 'value1')
@@ -160,16 +145,9 @@ class TestRedis:
         assert resp[:2] == [b'OK', b'OK']
         assert sorted(resp[2]) == [b'key1', b'key2']
 
-    async def test_pool_multi(self, event_loop, prepare, pool):
-        async with pool.get_redis() as redis:
-            await redis.multi()
-            await redis.set('key1', 'value1')
-            await redis.set('key2', 'value2')
-            await redis.keys('*')
-            resp = await redis.execute()
-        assert len(resp) == 3
-        assert resp[:2] == [b'OK', b'OK']
-        assert sorted(resp[2]) == [b'key1', b'key2']
+    async def test_xadd(self, event_loop, prepare, redis):
+        resp = await redis.xadd(*'mystream 111 sensor-id 1234 temperature 19.8'.split())
+        assert resp == b'111-0'
 
     async def test_pipeline(self, event_loop, prepare, redis):
         with redis.pipeline():
@@ -178,16 +156,6 @@ class TestRedis:
             await redis.ping()
             await redis.get('key')
             resp = await redis.pipeline_execute()
-        assert resp == [b'OK', b'PONG', b'PONG', b'value']
-
-    async def test_pool_pipeline(self, event_loop, prepare, pool):
-        async with pool.get_redis() as redis:
-            with redis.pipeline():
-                await redis.set('key', 'value')
-                await redis.ping()
-                await redis.ping()
-                await redis.get('key')
-                resp = await redis.pipeline_execute()
         assert resp == [b'OK', b'PONG', b'PONG', b'value']
 
     async def test_pipeline_multi(self, event_loop, prepare, redis):
@@ -202,109 +170,136 @@ class TestRedis:
         flag2 = resp == [b'OK', b'QUEUED', b'QUEUED', b'QUEUED', [b'OK', b'OK', [b'key2', b'key1']]]
         assert flag1 or flag2, resp
 
+    async def test_blpop(self, event_loop, prepare, pool):
+
+        async def push_coro():
+            await asyncio.sleep(1)
+            await pool.lpush('list', 'value')
+
+        asyncio.create_task(push_coro())
+
+        resp = await pool.blpop('list', 10000)
+        assert resp == [b'list', b'value']
+
+    async def test_pool_multi(self, event_loop, prepare, pool):
+        async with pool.get_redis() as redis:
+            await redis.multi()
+            await redis.set('key1', 'value1')
+            await redis.set('key2', 'value2')
+            await redis.keys('*')
+            resp = await redis.execute()
+        assert len(resp) == 3
+        assert resp[:2] == [b'OK', b'OK']
+        assert sorted(resp[2]) == [b'key1', b'key2']
+
+    async def test_pool_pipeline(self, event_loop, prepare, pool):
+        async with pool.get_redis() as redis:
+            with redis.pipeline():
+                await redis.set('key', 'value')
+                await redis.ping()
+                await redis.ping()
+                await redis.get('key')
+                resp = await redis.pipeline_execute()
+        assert resp == [b'OK', b'PONG', b'PONG', b'value']
+
     async def test_subscribe1(self, event_loop, prepare, redis):
-        messages = []
-
-        async def callback(data):
-            topic, channel, message = data
-            messages.append(message)
-
-        resp = await redis.subscribe(callback, 'channel1', 'channel2')
+        resp = await redis.subscribe('channel1', 'channel2')
         assert resp == [[b'subscribe', b'channel1', 1], [b'subscribe', b'channel2', 2]]
+        assert redis._listener is not None
         resp = await redis.unsubscribe()
         assert resp == [[b'unsubscribe', b'channel1', 1], [b'unsubscribe', b'channel2', 0]] or \
                resp == [[b'unsubscribe', b'channel2', 1], [b'unsubscribe', b'channel1', 0]]
-        assert redis._subscriber_task is None
-        assert messages == []
+        assert redis._listener is None
 
     async def test_subscribe2(self, event_loop, prepare, pool):
-        messages = []
-
-        async def callback(data):
-            topic, channel, message = data
-            messages.append(message)
-
         async def producer():
             async with pool.get_redis() as redis:
                 await redis.publish('channel1', 'message1')
                 await redis.publish('channel1', 'message2')
                 await redis.publish('channel2', 'message3')
 
+        messages = []
         async with pool.get_redis() as redis:
-            await redis.subscribe(callback, 'channel1', 'channel2')
-            await asyncio.wait({asyncio.create_task(producer())})
-            await asyncio.sleep(1)
-            await redis.unsubscribe()
-        assert messages == [b'message1', b'message2', b'message3']
+            await redis.subscribe('channel1', 'channel2')
+            asyncio.create_task(producer())
+
+            async def consume():
+                async for message in redis:
+                    messages.append(message)
+                    if len(messages) == 3:
+                        await redis.unsubscribe()
+
+            await asyncio.wait_for(consume(), 5)
+        assert messages == [
+                [b'message', b'channel1', b'message1'],
+                [b'message', b'channel1', b'message2'],
+                [b'message', b'channel2', b'message3']]
 
     async def test_psubscribe1(self, event_loop, prepare, redis):
-        messages = []
-
-        async def callback(data):
-            topic, pattern, channel, message = data
-            messages.append(message)
-
-        resp = await redis.psubscribe(callback, 'channel1.*', 'channel2.*')
+        resp = await redis.psubscribe('channel1.*', 'channel2.*')
         assert resp == [[b'psubscribe', b'channel1.*', 1], [b'psubscribe', b'channel2.*', 2]]
+        assert redis._listener is not None
         resp = await redis.punsubscribe()
         assert resp == [[b'punsubscribe', b'channel1.*', 1], [b'punsubscribe', b'channel2.*', 0]] or \
                resp == [[b'punsubscribe', b'channel1.*', 0], [b'punsubscribe', b'channel2.*', 1]]
-        assert redis._subscriber_task is None
-        assert messages == []
+        assert redis._listener is None
 
     async def test_psubscribe2(self, event_loop, prepare, pool):
-        messages = []
-
-        async def consumer(data):
-            topic, pattern, channel, message = data
-            messages.append(message)
-
         async def producer():
             async with pool.get_redis() as redis:
-                await redis.publish('channel1.a', 'message1')
-                await redis.publish('channel1.b', 'message2')
-                await redis.publish('channel2.c', 'message3')
+                await redis.publish('channel1.1', 'message1')
+                await redis.publish('channel1.2', 'message2')
+                await redis.publish('channel2.1', 'message3')
 
+        messages = []
         async with pool.get_redis() as redis:
-            await redis.psubscribe(consumer, 'channel1.*', 'channel2.*')
-            await asyncio.wait({asyncio.create_task(producer())})
-            await asyncio.sleep(1)
-            await redis.punsubscribe()
-        assert messages == [b'message1', b'message2', b'message3']
+            await redis.psubscribe('channel1.*', 'channel2.*')
+            asyncio.create_task(producer())
+
+            async def consume():
+                async for message in redis:
+                    messages.append(message)
+                    if len(messages) == 3:
+                        await redis.punsubscribe()
+
+            await asyncio.wait_for(consume(), 5)
+        assert messages == [
+                [b'pmessage', b'channel1.*', b'channel1.1', b'message1'],
+                [b'pmessage', b'channel1.*', b'channel1.2', b'message2'],
+                [b'pmessage', b'channel2.*', b'channel2.1', b'message3']]
 
     async def test_subscribe_psubscribe_mix(self, event_loop, prepare, pool):
-        messages = []
-
-        async def consumer(data):
-            topic, *data = data
-            messages.append(data[-1])
-
         async def producer():
             async with pool.get_redis() as redis:
                 await redis.publish('channel1', 'message1')
                 await redis.publish('channel*', 'message2')
 
+        messages = []
         async with pool.get_redis() as redis:
-            await redis.subscribe(consumer, 'channel1')
-            await redis.psubscribe(consumer, 'channel*')
-            await asyncio.wait({asyncio.create_task(producer())})
-            await asyncio.sleep(1)
-            await redis.unsubscribe()
-            await redis.punsubscribe()
-        assert messages == [b'message1', b'message1', b'message2']
+            await redis.subscribe('channel1')
+            await redis.psubscribe('channel*')
+            asyncio.create_task(producer())
+
+            async def consume():
+                async for message in redis:
+                    messages.append(message)
+                    if len(messages) == 3:
+                        await redis.unsubscribe()
+                        await redis.punsubscribe()
+
+            await asyncio.wait_for(consume(), 5)
+        assert messages == [
+                [b'message', b'channel1', b'message1'],
+                [b'pmessage', b'channel*', b'channel1', b'message1'],
+                [b'pmessage', b'channel*', b'channel*', b'message2']]
 
     async def test_subscribe_and_ping(self, event_loop, prepare, pool):
-        messages = []
-
-        async def callback(data):
-            messages.append(data)
-
         async with pool.get_redis() as redis:
-            resp = await redis.subscribe(callback, 'channel1', 'channel2')
+            queue = redis.pubsub_queue
+            resp = await redis.subscribe('channel1', 'channel2')
             assert resp == [[b'subscribe', b'channel1', 1], [b'subscribe', b'channel2', 2]]
 
-            async with pool.get_redis() as producer:
-                await producer.publish('channel1', 'Hello World!')
+            await pool.publish('channel1', 'Hello World!')
 
             resp = await redis.ping()
             assert resp == b'pong'
@@ -312,27 +307,15 @@ class TestRedis:
             resp = await redis.unsubscribe()
             assert resp == [[b'unsubscribe', b'channel1', 1], [b'unsubscribe', b'channel2', 0]] or \
                    resp == [[b'unsubscribe', b'channel2', 1], [b'unsubscribe', b'channel1', 0]]
-            assert redis._subscriber_task is None
+
+            messages = [message async for message in queue]
             assert messages == [[b'message', b'channel1', b'Hello World!']]
 
     async def test_subscribe_exc(self, event_loop, prepare, pool):
-        messages = []
-
-        async def callback(data):
-            topic, channel, message = data
-            messages.append(message)
-
         async with pool.get_redis() as redis:
-            resp = await redis.subscribe(callback, 'channel1', 'channel2')
-            assert resp == [[b'subscribe', b'channel1', 1], [b'subscribe', b'channel2', 2]]
-
+            await redis.subscribe('channel1', 'channel2')
             with pytest.raises(siderpy.RedisError,
                                match=(r"ERR Can't execute 'get': only \(P\)SUBSCRIBE / \(P\)UNSUBSCRIBE / PING / QUIT "
                                       "are allowed in this context")):
                 await redis.get('key')
-
-            resp = await redis.unsubscribe()
-            assert resp == [[b'unsubscribe', b'channel1', 1], [b'unsubscribe', b'channel2', 0]] or \
-                   resp == [[b'unsubscribe', b'channel2', 1], [b'unsubscribe', b'channel1', 0]]
-            assert redis._subscriber_task is None
-            assert messages == []
+            await redis.unsubscribe()
