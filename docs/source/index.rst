@@ -1,10 +1,11 @@
-Welcome to SiderPy's documentation!
-===================================
+.. include:: siderpy/index.rst
 
-.. automodule:: siderpy
-    :members:
-
+Guides
+======
 
 .. toctree::
-    :maxdepth: 2
-    :caption: Contents:
+   :maxdepth: 2
+
+   siderpy/getting_started
+   siderpy/api_reference
+   siderpy/benchmark

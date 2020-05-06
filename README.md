@@ -2,8 +2,9 @@
 
 Minimalistic Python asyncio Redis client library
 
-**master** ![tests](https://github.com/levsh/siderpy/workflows/tests/badge.svg) [![Documentation Status](https://readthedocs.org/projects/siderpy/badge/?version=latest)](https://siderpy.readthedocs.io/en/latest/?badge=latest)
-
+![tests](https://github.com/levsh/siderpy/workflows/tests/badge.svg)
+[![Documentation Status](https://readthedocs.org/projects/siderpy/badge/?version=latest)](https://siderpy.readthedocs.io/en/latest/?badge=latest)
+      
 ## Installation
 
 hiredis support
@@ -18,7 +19,6 @@ or pure python
 
 ## Examples
 
-Basic
 ```python
 In [1]: import siderpy                                                                                                                                                                                
 
@@ -36,84 +36,6 @@ Out[5]: b'value'
 In [6]: redis.close_connection()
 ```
 
-Multi
-```python
-In [3]: await redis.multi()                                                                                                                                                                             
-Out[3]: b'OK'
+## Documentation
 
-In [4]: await redis.set('key1', 'value1')                                                                                                                                                               
-Out[4]: b'QUEUED'
-
-In [5]: await redis.set('key2', 'value2')                                                                                                                                                               
-Out[5]: b'QUEUED'
-
-In [6]: await redis.execute()                                                                                                                                                                           
-Out[6]: [b'OK', b'OK']
-```
-
-Pipeline
-```python
-In [3]: redis.pipeline_on()                                                                                                                                                                             
-
-In [4]: await redis.ping()                                                                                                                                                                              
-
-In [5]: await redis.set('key', 'value')                                                                                                                                                                 
-
-In [6]: await redis.get('key')                                                                                                                                                                          
-
-In [7]: await redis.pipeline_execute()                                                                                                                                                                  
-Out[7]: [b'PONG', b'OK', b'value']
-
-In [8]: redis.pipeline_off()                                                                                                                                                                            
-```
-
-Pub/Sub
-```python
-In [3]: await redis.subscribe('channel')                                                                                                                                                            
-Out[3]: [b'subscribe', b'channel', 1]
-
-In [4]: async for message in redis: 
-   ...:     print(message)                                                                                                                                                                          
-   ...:     await redis.unsubscribe()
-[b'message', b'channel', b'Hello from other client!']
-```
-
-Sentinel
-```python
-In [1]: import siderpy                                                                                                                                                                                
-
-In [2]: redis = siderpy.Redis('redis://localhost:26379')                                                                                                                                                  
-
-In [3]: await redis.sentinel('masters')                                                                                                                                                                 
-Out[3]: 
-[[b'name',
-  b'mymaster',
-  b'ip',
-  b'127.0.0.1',
-  b'port',
-  b'6379',
-  ...
-```
-
-Pool
-```python
-
-In [1]: import siderpy                                                                                                                                                                                
-
-In [2]: pool = siderpy.RedisPool('redis://localhost', size=10)                                                                                                                                     
-
-In [3]: await pool.ping()                                                                                                                                                                             
-Out[3]: b'PONG'
-
-In [4]: await pool.set('key', 'value')                                                                                                                                                                
-Out[4]: b'OK'
-
-In [5]: await pool.get('key')                                                                                                                                                                         
-Out[5]: b'value'
-
-In [6]: # or                                                                                                                                                                                          
-
-In [7]: async with pool.get_redis() as redis: 
-   ...:     print(await redis.ping())                                                                                                                                                                 
-b'PONG'
-```
+[`siderpy.readthedocs.io`](https://siderpy.readthedocs.io/en/latest/)

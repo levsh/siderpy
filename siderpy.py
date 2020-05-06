@@ -219,6 +219,7 @@ class Protocol:
 
 
 class PubSubQueue(asyncio.Queue):
+    """Queue class to hold incomming messages"""
 
     def __init__(self, *args, **kwds):
         super().__init__(*args, **kwds)
@@ -272,30 +273,6 @@ class Redis:
         >>> await redis.ping()
         >>> ...
         >>> redis.close_connection()
-
-    Manual auth and logical database selection
-
-        >>> await redis.auth('password')
-        >>> await redis.auth('user', 'password')  # when Redis ACLs are used
-        >>> await redis.select(0)
-
-    multi/exec
-
-        >>> await redis.multi()
-        >>> await redis.set('key', 'value')
-        >>> ...
-        >>> await redis.execute()
-        >>> await redis.close_connection()
-
-    pub/sub
-
-        >>> async def consume():
-        >>>     async for message in redis1:
-        >>>         print(message)
-        >>> asyncio.create_task(consume())
-        >>> await redis1.subscribe('channelA', 'channelB')
-        >>> await redis2.publish('channelA', 'Hello!')
-        >>> await redis1.unsubsribe()
     """
 
     __slots__ = ('_scheme', '_host', '_port', '_username', '_password', '_db', '_path',
@@ -438,7 +415,8 @@ class Redis:
 
     def pipeline_on(self):
         """Enable pipeline mode. In this mode, all commands are saved to the internal pipeline buffer
-        and not executed until `pipeline_execute` method is invoked directly."""
+        until :py:meth:`pipeline_off` method is invoked directly.
+        To execute stored buffer call :py:meth:`pipeline_execute`"""
         self._pipeline = True
 
     def pipeline_off(self):
@@ -504,6 +482,7 @@ class Redis:
 
     @property
     def pubsub_queue(self):
+        """Instance of :py:class:`PubSubQueue` class. Holds incomming messages."""
         return self._pubsub_queue
 
     async def _open_connection(self):
@@ -653,9 +632,11 @@ class Redis:
         return self._pubsub_queue
 
     async def delete(self, *args):
+        """Redis `del` command"""
         return await self.execute_cmd('del', *args)
 
     async def execute(self):
+        """Redis `exec` command"""
         return await self.execute_cmd('exec')
 
     def __getattr__(self, attr_name: str):
@@ -818,6 +799,6 @@ class RedisPool:
             return await redis.execute_cmd(attr_name, *args)
 
     def __getattr__(self, attr_name: str):
-        if attr_name in {'multi', 'exec', 'subscribe', 'psubscribe', 'unsubscribe', 'punsubscribe'}:
+        if attr_name in {'multi', 'exec', 'discard', 'subscribe', 'psubscribe', 'unsubscribe', 'punsubscribe'}:
             raise AttributeError("'%s' object has no attribute '%s'" % (self, attr_name))
         return functools.partial(self._execute, attr_name)
