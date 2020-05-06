@@ -1,8 +1,5 @@
-.. _api:
-
 API Reference
 =============
-
 
 .. automodule:: siderpy
    :members:

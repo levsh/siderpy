@@ -8,3 +8,4 @@ Guides
 
    siderpy/getting_started
    siderpy/api_reference
+   siderpy/benchmark

@@ -29,22 +29,23 @@ SiderPy uses uri format to connect to the Redis server.
 
     import siderpy
 
-    redis = siderpy.Redis('redis://localhost:6379?db=0')
+    redis = siderpy.Redis('redis://username:password@localhost:6379?db=0')
 
 or in case of unix socket
 
 .. code-block:: python
 
-    redis = siderpy.Redis('redis+unix///var/run/redis.sock')
+    redis = siderpy.Redis('redis+unix://username:password@/var/run/redis.sock?db=0')
 
-SiderPy supports connection open timeout, read/write timeout, ssl, and server data decoding.
+It's possibly to specify connection open timeout, read/write timeout, ssl, and server data decoding.
 For `__init__` method details see :py:meth:`API Reference <siderpy.Redis.__init__>`
 
-:py:meth:`~siderpy.Redis` class represents a signle network connection.
-If yout need a pool of connections see :py:meth:`~siderpy.RedisPool` or implement your own.
+Instead of opening connection to the server at the time :py:class:`~siderpy.Redis` object was created,
+the connection is establish lazy at the first call.
+It's allows to create :py:class:`~siderpy.Redis` instance inside `__init__` method.
 
-Although :py:meth:`~siderpy.Redis` class doesn't explicitly define Redis commands as methods of itself, 
-except `exec` (execute) and `del` (delete), calling command is as simple as calling instance method:
+:py:class:`~siderpy.Redis` class doesn't explicitly define Redis commands as methods of itself, 
+except `execute` (exec) and `delete` (del), but calling command is same as calling instance method.
 
 .. code-block:: python
 
@@ -54,7 +55,7 @@ except `exec` (execute) and `del` (delete), calling command is as simple as call
     response = await redis.get('key')
 
 After the Redis object no longer needed call :py:meth:`~siderpy.Redis.close_connection` method 
-to close underlying connection to the server and free resources:
+to close underlying connection to the server and free resources.
 
 .. code-block:: python
 
@@ -64,7 +65,7 @@ to close underlying connection to the server and free resources:
 Transactions with multi/exec
 ----------------------------
 
-To use transaction just wraps your command into multi/exec block
+To use transaction just wraps your command into multi/exec block.
 
 .. code-block:: python
 
@@ -72,6 +73,28 @@ To use transaction just wraps your command into multi/exec block
     await redis.set('key', 'value')
     ...
     await redis.execute()  # Redis 'exec' command
+
+Pipeline
+--------
+
+To enable pipeline call :py:meth:`~siderpy.Redis.pipeline_on`.
+After that all subsequent commands are saved in the internall buffer until :py:meth:`~siderpy.Redis.pipeline_off`
+method is called. To execute stored buffer run :py:meth:`~siderpy.Redis.pipeline_execute`.
+
+.. code-block:: python
+
+    redis.pipeline_on()
+    await redis.set('key1', 'value1')
+    await redis.set('key2', 'value2')
+    ...
+    await redis.set('keyN', 'valueN')
+    response = await redis.pipeline_execute()
+    redis.pipeline_off()
+
+    # or
+    with redis.pipeline():
+        ...
+    await redis.pipeline_execute()
 
 Publish/Subscribe
 -----------------
@@ -88,21 +111,25 @@ Subscribe to a channel(s):
 
     await redis.subscribe('channel1', 'channel2', ..., 'channelN')
 
-To receive messages from subscribed channels just iterate over :py:meth:`~siderpy.Redis` object:
+To receive messages from subscribed channels just iterate over :py:class:`~siderpy.Redis` object.
 
 .. code-block:: python
 
     async for message in redis:
         print(message)
 
-or use :py:meth:`~siderpy.Redis.pubsub_queue` directly:
+or use :py:attr:`~siderpy.Redis.pubsub_queue` directly
 
 .. code-block:: python
 
-    while True:
-        message = await redis.pubsub_queue.get() 
+    # 1
+    message = await redis.pubsub_queue.get() 
 
-If a error occurs during consuming then it will raised to client code:
+    # 2
+    async for message in redis.pubsub_queue:
+        ...
+
+If a error occurs during consuming then it will be raised.
 
 .. code-block:: python
 
@@ -130,4 +157,26 @@ If a error occurs during consuming then it will raised to client code:
         raise ConnectionError
     ConnectionError
 
-In this case it's necessary to resubscribe again to continue reciving messages.
+In this case it's necessary to resubscribe again to continue recieving messages.
+
+Pool
+----
+
+:py:class:`~siderpy.Redis` class represents a signle network connection.
+If yout need a pool of connections use :py:class:`~siderpy.RedisPool` or implement your own.
+:py:class:`~siderpy.RedisPool` supports direct commands call except connection dependent commands such as
+subscribe, psubscribe, unsubscribe, punsubscribe, multi, exec, discard, etc.
+
+.. code-block:: python
+
+    pool = siderpy.RedisPool('redis://localhost:6379?db=0')
+    await pool.ping()
+    await pool.get('key')
+
+But it's recommended to get the :py:class:`~siderpy.Redis` object and use it
+
+.. code-block:: python
+
+    async with pool.get_redis() as redis:
+        await redis.get('key')
+        ...
