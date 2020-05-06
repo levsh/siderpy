@@ -28,7 +28,7 @@ except ImportError:
     hiredis = None
 
 
-log_frmt = logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s')
+log_frmt = logging.Formatter('%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s')
 log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 LOG = logging.getLogger(__name__)
@@ -231,7 +231,18 @@ class PubSubQueue(asyncio.Queue):
         while self._getters:
             getter = self._getters.popleft()
             if not getter.done():
-                getter.set_result(None)
+                if exc:
+                    getter.set_exception(exc)
+                else:
+                    getter.set_result(None)
+
+    # pylint: disable=arguments-differ
+    async def get(self, *args, **kwds):
+        if self._closed and self.empty():
+            if self._exc:
+                raise QueueClosedError from self._exc
+            raise QueueClosedError
+        return await super().get(*args, **kwds)
 
     # pylint: disable=arguments-differ
     def _put(self, *args, **kwds):
@@ -239,13 +250,13 @@ class PubSubQueue(asyncio.Queue):
             raise QueueClosedError
         return super()._put(*args, **kwds)
 
-    # pylint: disable=arguments-differ
-    def _get(self, *args, **kwds):
-        if self._closed and self.qsize() == 0:
-            if self._exc:
-                raise QueueClosedError from self._exc
-            raise QueueClosedError
-        return super()._get(*args, **kwds)
+    # # pylint: disable=arguments-differ
+    # def _get(self, *args, **kwds):
+    #     if self._closed and self.qsize() == 0:
+    #         if self._exc:
+    #             raise QueueClosedError from self._exc
+    #         raise QueueClosedError
+    #     return super()._get(*args, **kwds)
 
     def __aiter__(self):
         return self
@@ -504,7 +515,7 @@ class Redis:
         return self._pubsub_queue
 
     async def _open_connection(self):
-        # LOG.debug('%s create connection', self)
+        LOG.debug('%s create connection', self)
         if self._listener:
             self._listener.cancel()
             self._listener = None
@@ -541,7 +552,7 @@ class Redis:
         if self._listener is not None:
             self._future = asyncio.get_event_loop().create_future()
         r, w = self._conn
-        # LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), array)
+        LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), array)
         try:
             w.write(array)
             if self._write_timeout is not None:
@@ -559,8 +570,8 @@ class Redis:
                         raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
                     if raw == b'' and r.at_eof():
                         raise ConnectionError
-                    # # pylint: disable=protected-access
-                    # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
+                    # pylint: disable=protected-access
+                    LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
                     proto.feed(raw)
                     while True:
                         item = proto.gets()
@@ -601,8 +612,8 @@ class Redis:
                         raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
                     if raw == b'' and r.at_eof():
                         raise ConnectionError
-                    # # pylint: disable=protected-access
-                    # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
+                    # pylint: disable=protected-access
+                    LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
                     proto.feed(raw)
                     while True:
                         item = proto.gets()
@@ -639,10 +650,11 @@ class Redis:
             LOG.debug('%s %s %s', self, e.__class__.__name__, e)
             self._pubsub_queue.close(exc=e)
         except Exception as e:
-            LOG.exception('%s %s %s', self, e.__class__.__name__, e)
+            LOG.error('%s %s %s', self, e.__class__.__name__, e)
             self._pubsub_queue.close(exc=e)
         finally:
             self._listener = None
+            self._subscription = False
             self._pubsub_queue = PubSubQueue(maxsize=self._queue_maxsize)
 
     def __aiter__(self):
