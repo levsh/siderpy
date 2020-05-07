@@ -39,3 +39,9 @@ In [6]: redis.close_connection()
 ## Documentation
 
 [`siderpy.readthedocs.io`](https://siderpy.readthedocs.io/en/latest/)
+
+
+## Benchmark
+
+Benchmark test available at [`github workflow actions`](https://github.com/levsh/siderpy/actions?query=workflow%3Atests+branch%3Amaster)
+step `Benchmark`.

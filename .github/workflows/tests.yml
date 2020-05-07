@@ -26,9 +26,11 @@ jobs:
       run: |
         pip install pylint flake8
         pip install -r tests/requirements.txt
-    - name: Run pytest
-      run: pytest --timeout=60 -sv --durations=5 tests/run.py
     - name: Linter
       run: |
         pylint siderpy.py
         flake8 siderpy.py
+    - name: Run pytest
+      run: pytest --timeout=60 -sv --durations=5 tests/run.py -k Test
+    - name: Benchmark
+      run: pytest --timeout=120 -sv tests/run.py -k TestBenchmark
