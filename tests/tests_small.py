@@ -469,6 +469,36 @@ class TestRedis:
             mock_close_connection.assert_called_once()
 
     @mock.patch('asyncio.wait_for')
+    async def test__read(self, mock_wait_for):
+        r = mock.MagicMock()
+        r.read = mock.AsyncMock(return_value=b'*1\r\n+OK\r\n')
+        w = mock.MagicMock()
+        w.drain = mock.AsyncMock()
+        w.wait_closed = mock.AsyncMock()
+        redis = siderpy.Redis()
+        redis._conn = (r, w)
+        redis._cmd_count = 1
+        data = await redis._read()
+        r.read.assert_awaited_once()
+        mock_wait_for.assert_not_awaited()
+        assert data == [[b'OK']]
+
+    async def test__read_timeout(self):
+        async def sleep(*args, **kwds):
+            await asyncio.sleep(10)
+        r = mock.MagicMock()
+        r.read = sleep
+        w = mock.MagicMock()
+        w.is_closing = mock.MagicMock(return_value=False)
+        w.drain = mock.AsyncMock()
+        w.wait_closed = mock.AsyncMock()
+        redis = siderpy.Redis(timeout=(0.1, None))
+        redis._conn = (r, w)
+        redis._cmd_count = 1
+        with pytest.raises(asyncio.TimeoutError):
+            await redis._read()
+
+    @mock.patch('asyncio.wait_for')
     @mock.patch('asyncio.create_task')
     async def test__execute_cmd_list_open_conn(self, mock_create_task, mock_wait_for):
         r = mock.MagicMock()

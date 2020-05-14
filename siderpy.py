@@ -510,6 +510,29 @@ class Redis:
                 self.close_connection()
                 raise
 
+    async def _read(self):
+        data = []
+        r, _ = self._conn
+        proto = self._proto
+        while len(data) < self._cmd_count:
+            if self._read_timeout is None:
+                raw = await r.read(2048)
+            else:
+                raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
+            if raw == b'' and r.at_eof():
+                raise ConnectionError
+            # # pylint: disable=protected-access
+            # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
+            proto.feed(raw)
+            while True:
+                item = proto.gets()
+                if item is False:
+                    break
+                data.append(item)
+                if not proto.has_data():
+                    break
+        return data
+
     async def _execute_cmd_list(self, cmd_list: list):
         if self._conn is None or self._conn[1].is_closing():
             await self._open_connection()
@@ -522,7 +545,7 @@ class Redis:
             self._listener = asyncio.create_task(self._listen())
         if self._listener is not None:
             self._future = asyncio.get_event_loop().create_future()
-        r, w = self._conn
+        _, w = self._conn
         # LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), array)
         try:
             w.write(array)
@@ -530,29 +553,10 @@ class Redis:
                 await asyncio.wait_for(w.drain(), self._write_timeout)
             else:
                 await w.drain()
+            self._cmd_count = len(cmd_list)
             if self._listener is None:
-                data = []
-                proto = self._proto
-                cmd_count = len(cmd_list)
-                while len(data) < cmd_count:
-                    if self._read_timeout is None:
-                        raw = await r.read(2048)
-                    else:
-                        raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
-                    if raw == b'' and r.at_eof():
-                        raise ConnectionError
-                    # # pylint: disable=protected-access
-                    # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
-                    proto.feed(raw)
-                    while True:
-                        item = proto.gets()
-                        if item is False:
-                            break
-                        data.append(item)
-                        if not proto.has_data():
-                            break
+                data = await self._read()
             else:
-                self._cmd_count = len(cmd_list)
                 if self._read_timeout is None:
                     data = await self._future
                 else:
@@ -571,28 +575,9 @@ class Redis:
 
     async def _listen(self):
         try:
-            proto = self._proto
-            r, _ = self._conn
             incomming = []
             while self._subscription:
-                data = []
-                while len(data) < self._cmd_count:
-                    if self._read_timeout is None:
-                        raw = await r.read(2048)
-                    else:
-                        raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
-                    if raw == b'' and r.at_eof():
-                        raise ConnectionError
-                    # # pylint: disable=protected-access
-                    # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
-                    proto.feed(raw)
-                    while True:
-                        item = proto.gets()
-                        if item is False:
-                            break
-                        data.append(item)
-                        if not proto.has_data():
-                            break
+                data = await self._read()
                 for item in data:
                     if self._subscription:
                         if isinstance(item, list) and item[0] in {b'message', b'pmessage'}:

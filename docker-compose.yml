@@ -21,26 +21,6 @@ services:
       - "redis"
     command: ["haproxy", "-f", "/opt/siderpy/tests/haproxy.cfg"]
 
-  # tests_3.7:
-  #   image: siderpy_tests_3.7
-  #   volumes:
-  #     - .:/opt/siderpy
-  #   links:
-  #     - redis:redis
-  #     - haproxy:haproxy
-  #   environment:
-  #     - REDIS_HOST=haproxy
-  #     - REDIS_PORT=6379
-  #     - TESTS_USE_SSL=1
-  #   depends_on:
-  #     - "redis"
-  #     - "haproxy"
-  #   command:
-  #     bash -c "
-  #       pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py &&
-  #       pip install aioredis &&
-  #       pytest --timeout=30 -sv --durations=5 /opt/siderpy/tests/tests.py"
-
   tests_3.8:
     image: siderpy_tests_hiredis_3.8
     volumes:
