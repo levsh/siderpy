@@ -235,6 +235,30 @@ class TestProtocolHiredis:
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
 class TestRedis:
 
+    def test__parse_address(self):
+        parsed = siderpy.Redis._parse_address('redis://username:password@localhost:6379?db=0')
+        assert parsed.get('scheme') == 'redis'
+        assert parsed.get('username') == 'username'
+        assert parsed.get('password') == 'password'
+        assert parsed.get('host') == 'localhost'
+        assert parsed.get('port') == 6379
+        assert parsed.get('path') is None
+        assert parsed.get('db') == 0
+
+    def test__parse_invalid_address(self):
+        with pytest.raises(ValueError, match=r'Scheme is required'):
+            siderpy.Redis._parse_address('localhost')
+        with pytest.raises(ValueError, match=r'Scheme is required'):
+            siderpy.Redis._parse_address('redis//localhost')
+        with pytest.raises(ValueError, match=r'Scheme is not supported http'):
+            siderpy.Redis._parse_address('http://localhost')
+        with pytest.raises(ValueError, match=r'Path param is not supported'):
+            siderpy.Redis._parse_address('redis://localhost/0')
+        with pytest.raises(ValueError, match=r'Hostname is required'):
+            siderpy.Redis._parse_address('redis://:password')
+        with pytest.raises(ValueError, match=r'Unix socket path is required'):
+            siderpy.Redis._parse_address('redis+unix://:password')
+
     def test__init_defaults(self):
         with mock.patch('siderpy.Protocol') as mock_proto:
             with mock.patch('siderpy.PubSubQueue') as mock_queue:
@@ -309,20 +333,6 @@ class TestRedis:
             assert redis._port == 6379
             assert redis._path == '/var/run/redis.sock'
             assert redis._db == 1
-
-    def test__init_invalid_params(self):
-        with pytest.raises(ValueError, match=r'Scheme is required'):
-            siderpy.Redis('localhost')
-        with pytest.raises(ValueError, match=r'Scheme is required'):
-            siderpy.Redis('redis//localhost')
-        with pytest.raises(ValueError, match=r'Scheme is not supported http'):
-            siderpy.Redis('http://localhost')
-        with pytest.raises(ValueError, match=r'Path param is not supported'):
-            siderpy.Redis('redis://localhost/0')
-        with pytest.raises(ValueError, match=r'Hostname is required'):
-            siderpy.Redis('redis://:password')
-        with pytest.raises(ValueError, match=r'Unix socket path is required'):
-            siderpy.Redis('redis+unix://:password')
 
     def test__str(self):
         redis = siderpy.Redis('redis://127.0.0.1:5555')

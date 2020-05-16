@@ -219,7 +219,7 @@ class Protocol:
 
 
 class PubSubQueue(asyncio.Queue):
-    """Queue class to hold incomming messages"""
+    """Queue class to hold incomming messages."""
 
     def __init__(self, *args, **kwds):
         super().__init__(*args, **kwds)
@@ -324,38 +324,14 @@ class Redis:
             errors (:py:class:`str`, optional): Error handling scheme to use for handling of decoding errors.
             ssl_ctx (:py:class:`ssl.SSLContext`, optional): SSL context object to enable SSL(TLS).
         """
-        self._scheme = None
-        self._username = None
-        self._password = None
-        self._host = None
-        self._port = 6379
-        self._path = None
-        self._db = 0
-        parsed = urllib.parse.urlparse(address)
-        self._scheme = parsed.scheme
-        if not self._scheme:
-            raise ValueError('Scheme is required')
-        if self._scheme == 'redis':
-            if not parsed.hostname:
-                raise ValueError('Hostname is required')
-            self._host = parsed.hostname
-            if parsed.path:
-                raise ValueError('Path param is not supported')
-            if parsed.port is not None:
-                self._port = parsed.port
-        elif self._scheme == 'redis+unix':
-            if not parsed.path:
-                raise ValueError('Unix socket path is required')
-            self._path = parsed.path
-        else:
-            raise ValueError('Scheme is not supported %s' % self._scheme)
-        if parsed.username:
-            self._username = parsed.username
-        if parsed.password:
-            self._password = parsed.password
-        if parsed.query:
-            # pylint: disable=consider-using-dict-comprehension
-            self._db = int(dict([param_str.split('=', 1) for param_str in parsed.query.split('&')]).get('db'))
+        parsed = self._parse_address(address)
+        self._scheme = parsed['scheme']
+        self._host = parsed['host']
+        self._username = parsed.get('username')
+        self._password = parsed.get('password')
+        self._port = parsed.get('port', 6379)
+        self._db = parsed.get('db', 0)
+        self._path = parsed.get('path')
         self._connect_timeout = connect_timeout
         if isinstance(timeout, (tuple, list)):
             self._read_timeout, self._write_timeout = timeout
@@ -399,6 +375,38 @@ class Redis:
                 self.__class__.__module__, self.__class__.__name__, self._host, self._port, hex(id(self)))
         return '<{}.{} ({}) [{}]>'.format(
             self.__class__.__module__, self.__class__.__name__, os.path.basename(self._path), hex(id(self)))
+
+    @classmethod
+    def _parse_address(cls, address: str) -> dict:
+        parsed = urllib.parse.urlparse(address)
+        out = {'scheme': parsed.scheme, 'host': parsed.hostname}
+        if not parsed.scheme:
+            raise ValueError('Scheme is required')
+        if parsed.scheme == 'redis':
+            if not parsed.hostname:
+                raise ValueError('Hostname is required')
+            if parsed.path:
+                raise ValueError('Path param is not supported')
+        elif parsed.scheme == 'redis+unix':
+            if not parsed.path:
+                raise ValueError('Unix socket path is required')
+            out['path'] = parsed.path
+        else:
+            raise ValueError('Scheme is not supported %s' % parsed.scheme)
+        if parsed.query:
+            # pylint: disable=consider-using-dict-comprehension
+            db = dict([param_str.split('=', 1) for param_str in parsed.query.split('&')]).get('db')
+            if db is not None:
+                if not db.isdigit():
+                    raise ValueError('db param must be integer')
+                out['db'] = int(db)
+        if parsed.username:
+            out['username'] = parsed.username
+        if parsed.password:
+            out['password'] = parsed.password
+        if parsed.port:
+            out['port'] = parsed.port
+        return out
 
     def __repr__(self):
         return self.__str__()
@@ -744,7 +752,7 @@ class RedisPool:
     def __repr__(self):
         return self.__str__()
 
-    async def _factory(self):
+    async def _factory(self) -> Redis:
         return Redis(address=self._address,
                      connect_timeout=self._connect_timeout,
                      timeout=(self._read_timeout, self._write_timeout),
