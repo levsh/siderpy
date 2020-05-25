@@ -45,7 +45,7 @@ def siderpy_setup(loop):
 
 
 def siderpy_teardown(loop, redis):
-    redis.close_connection()
+    loop.run_until_complete(redis.close_connection())
 
 
 def siderpy_pool_setup(loop):
@@ -53,7 +53,7 @@ def siderpy_pool_setup(loop):
 
 
 def siderpy_pool_teardown(loop, redis):
-    redis.close_connections()
+    loop.run_until_complete(redis.close_connections())
 
 
 def aioredis_setup(loop):

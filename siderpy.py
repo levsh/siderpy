@@ -272,7 +272,7 @@ class Redis:
         >>> redis = siderpy.Redis('redis://username:password@localhost:6379?db=0')
         >>> await redis.ping()
         >>> ...
-        >>> redis.close_connection()
+        >>> await redis.close_connection()
     """
 
     __slots__ = ('_scheme', '_host', '_port', '_username', '_password', '_db', '_path',
@@ -411,12 +411,9 @@ class Redis:
     def __repr__(self):
         return self.__str__()
 
-    def close_connection(self):
+    async def close_connection(self):
         """Close established connection"""
-        if self._listener:
-            self._listener.cancel()
-            self._listener = None
-        self._pubsub_queue.close()
+        await self._cancel_listener()
         if self._conn is not None:
             self._conn[1].close()
             self._conn = None
@@ -493,11 +490,17 @@ class Redis:
         """Instance of :py:class:`PubSubQueue` class. Holds incomming messages."""
         return self._pubsub_queue
 
-    async def _open_connection(self):
-        # LOG.debug('%s create connection', self)
+    async def _cancel_listener(self):
         if self._listener:
             self._listener.cancel()
-            self._listener = None
+            try:
+                await self._listener
+            except asyncio.CancelledError:
+                pass
+
+    async def _open_connection(self):
+        # LOG.debug('%s create connection', self)
+        await self._cancel_listener()
         self._proto.reset()
         if self._connect_timeout is None:
             self._conn = await self._get_connection()
@@ -515,7 +518,7 @@ class Redis:
             try:
                 await self._execute_cmd_list(cmd_list)
             except Exception:
-                self.close_connection()
+                await self.close_connection()
                 raise
 
     async def _read(self):
@@ -619,6 +622,7 @@ class Redis:
         finally:
             self._listener = None
             self._subscription = False
+            self._pubsub_queue.close()
             self._pubsub_queue = PubSubQueue(maxsize=self._queue_maxsize)
 
     def __aiter__(self):
@@ -689,13 +693,13 @@ class Pool:
             self._used.remove(item)
             self._queue.put_nowait(item)
 
-    def close(self, func: tp.Callable):
-        for item in self._used:
-            func(item)
+    async def close(self, func: tp.Callable):
+        coros = [func(item) for item in self._used]
         while self._queue.qsize():
             item = self._queue.get_nowait()
             if item is not None:
-                func(item)
+                coros.append(func(item))
+        await asyncio.gather(*coros)
 
 
 class RedisPool:
@@ -706,7 +710,7 @@ class RedisPool:
         >>> await pool.ping()
         >>> await pool.get('key')
         >>> ...
-        >>> pool.close_connections()
+        >>> await pool.close_connections()
 
     Pool doesn't implement multi/exec and pub/sub commands.
     For performance reasons it's better to use Redis instance as command executor instead of pool itself. For example:
@@ -778,14 +782,16 @@ class RedisPool:
                     # pylint: disable=protected-access
                     await asyncio.wait_for(asyncio.wait({redis._listener}), timeout)
                 except asyncio.TimeoutError:
-                    redis.close_connection()
+                    await redis.close_connection()
                     raise SiderPyError('Closising Redis instance because active pub/sub')
         finally:
             self._pool.put(redis)
 
-    def close_connections(self):
+    async def close_connections(self):
         """Close all established connections"""
-        self._pool.close(lambda redis: redis.close_connection())
+        async def close(redis):
+            await redis.close_connection()
+        await self._pool.close(close)
 
     async def _execute(self, attr_name: str, *args):
         async with self._pool.get_item(timeout=self._connect_timeout) as redis:

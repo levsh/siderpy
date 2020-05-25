@@ -28,7 +28,7 @@ def event_loop():
 
 
 @pytest.fixture(scope='function')
-def redis():
+async def redis():
     ssl_ctx = None
     if TESTS_USE_SSL:
         ssl_ctx = ssl.create_default_context()
@@ -38,7 +38,7 @@ def redis():
     try:
         yield redis
     finally:
-        redis.close_connection()
+        await redis.close_connection()
 
 
 @pytest.fixture(scope='function')
@@ -48,7 +48,7 @@ async def prepare(event_loop, redis):
 
 
 @pytest.fixture(scope='function')
-def pool():
+async def pool():
     ssl_ctx = None
     if TESTS_USE_SSL:
         ssl_ctx = ssl.create_default_context()
@@ -58,7 +58,7 @@ def pool():
     try:
         yield pool
     finally:
-        pool.close_connections()
+        await pool.close_connections()
 
 
 class TestRedis:

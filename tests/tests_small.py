@@ -341,31 +341,29 @@ class TestRedis:
         redis = siderpy.Redis('redis+unix:///var/run/redis.sock')
         assert str(redis) == '<siderpy.Redis (redis.sock) [{}]>'.format(hex(id(redis)))
 
-    def test_close_connection(self):
+    async def test_close_connection(self):
         redis = siderpy.Redis()
         mock_conn = mock.MagicMock()
         redis._conn = mock_conn
         mock_queue = mock.MagicMock()
         redis._pubsub_queue = mock_queue
-        redis.close_connection()
+        await redis.close_connection()
         mock_conn[1].close.assert_called_once()
-        mock_queue.close.assert_called_once()
+        mock_queue.close.assert_not_called()
         assert redis._conn is None
-        assert redis._listener is None
 
-        redis = siderpy.Redis()
-        mock_listener = mock.MagicMock()
-        redis._listener = mock_listener
-        mock_conn = mock.MagicMock()
-        redis._conn = mock_conn
-        mock_queue = mock.MagicMock()
-        redis._pubsub_queue = mock_queue
-        redis.close_connection()
-        mock_listener.cancel.assert_called_once()
-        mock_conn[1].close.assert_called_once()
-        mock_queue.close.assert_called_once()
-        assert redis._conn is None
-        assert redis._listener is None
+        with mock.patch('siderpy.Redis._cancel_listener') as mock_cancel_listener:
+            redis = siderpy.Redis()
+            mock_listener = mock.MagicMock()
+            redis._listener = mock_listener
+            mock_conn = mock.MagicMock()
+            redis._conn = mock_conn
+            mock_queue = mock.MagicMock()
+            redis._pubsub_queue = mock_queue
+            await redis.close_connection()
+            mock_cancel_listener.assert_awaited_once()
+            mock_conn[1].close.assert_called_once()
+            assert redis._conn is None
 
     def test_pipeline_on(self):
         redis = siderpy.Redis()
@@ -476,7 +474,7 @@ class TestRedis:
                                                ssl=None,
                                                ssl_handshake_timeout=None)
             mock_execute_cmd_list.assert_awaited_once_with([['auth', ('username', 'password')]])
-            mock_close_connection.assert_called_once()
+            mock_close_connection.assert_awaited_once()
 
     @mock.patch('asyncio.wait_for')
     async def test__read(self, mock_wait_for):
@@ -670,9 +668,13 @@ class Test_Pool:
         pool = siderpy.Pool(factory)
         await pool.get()
         pool.put(await pool.get())
-        func = mock.MagicMock()
-        pool.close(func)
-        func.assert_has_calls([mock.call(item1), mock.call(item2)])
+        items = []
+
+        async def func(item):
+            items.append(item)
+
+        await pool.close(func)
+        assert items == [item1, item2]
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")

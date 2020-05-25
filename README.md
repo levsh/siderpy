@@ -33,7 +33,7 @@ Out[4]: b'OK'
 In [5]: await redis.get('key')                                                                                                                                                                          
 Out[5]: b'value'
 
-In [6]: redis.close_connection()
+In [6]: await redis.close_connection()
 ```
 
 ## Documentation

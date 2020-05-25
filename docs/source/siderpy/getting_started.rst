@@ -59,7 +59,7 @@ to close underlying connection to the server and free resources.
 
 .. code-block:: python
 
-    redis.close_connection()
+    await redis.close_connection()
 
 
 Transactions with multi/exec
