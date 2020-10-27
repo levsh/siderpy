@@ -1,14 +1,15 @@
 __all__ = [
-        'SiderPyError',
-        'RedisError',
-        'QueueClosedError',
-        'LOG',
-        'CONNECT_TIMEOUT',
-        'TIMEOUT',
-        'POOL_SIZE',
-        'Redis',
-        'RedisPool']
-__version__ = '0.1'
+    "SiderPyError",
+    "RedisError",
+    "QueueClosedError",
+    "LOG",
+    "CONNECT_TIMEOUT",
+    "TIMEOUT",
+    "POOL_SIZE",
+    "Redis",
+    "RedisPool",
+]
+__version__ = "0.2.0"
 
 import asyncio
 import collections
@@ -28,12 +29,12 @@ except ImportError:
     hiredis = None
 
 
-log_frmt = logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s')
+log_frmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
 log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 LOG = logging.getLogger(__name__)
 LOG.addHandler(log_hndl)
-LOG.setLevel('INFO')
+LOG.setLevel("INFO")
 
 
 CONNECT_TIMEOUT = None
@@ -55,17 +56,17 @@ class QueueClosedError(SiderPyError):
 
 class Protocol:
 
-    __slots__ = ('_encoding', '_reader', '_unparsed', '_parser', '_ready', 'feed', 'gets', 'has_data')
+    __slots__ = ("_encoding", "_reader", "_unparsed", "_parser", "_ready", "feed", "gets", "has_data")
 
     def __init__(self, encoding=None, errors=None):
         self._encoding = {}
         if encoding is not None:
-            self._encoding['encoding'] = encoding
+            self._encoding["encoding"] = encoding
         if errors is not None:
-            self._encoding['errors'] = errors
+            self._encoding["errors"] = errors
         if hiredis is None:
             self._reader = None
-            self._unparsed = b''
+            self._unparsed = b""
             self._parser = self._parse()
             next(self._parser)
             self._ready = collections.deque()
@@ -79,8 +80,9 @@ class Protocol:
             self.has_data = self._reader.has_data
 
     def __str__(self):
-        return '<{}.{} hiredis={} [{}]>'.format(
-            self.__class__.__module__, self.__class__.__name__, bool(self._reader), hex(id(self)))
+        return "<{}.{} hiredis={} [{}]>".format(
+            self.__class__.__module__, self.__class__.__name__, bool(self._reader), hex(id(self))
+        )
 
     def __repr__(self):
         return self.__str__()
@@ -90,29 +92,30 @@ class Protocol:
             self._reader = hiredis.Reader(**self._encoding)
         else:
             self._ready.clear()
-            self._unparsed = b''
+            self._unparsed = b""
 
     def make_cmd(self, cmd_name: str, cmd_args: tp.Union[tuple, list]) -> bytearray:
         buf = bytearray()
-        buf.extend(b'*%d\r\n$%d\r\n%s\r\n' % (len(cmd_args) + 1, len(cmd_name), cmd_name.encode()))
+        buf.extend(b"*%d\r\n$%d\r\n%s\r\n" % (len(cmd_args) + 1, len(cmd_name), cmd_name.encode()))
         for arg in cmd_args:
             if isinstance(arg, (str, numbers.Number)):
                 arg = str(arg).encode()
-            buf.extend(b'$%d\r\n%s\r\n' % (len(arg), arg))
+            buf.extend(b"$%d\r\n%s\r\n" % (len(arg), arg))
         return buf
 
     def _has_data(self) -> bool:
         return bool(self._ready) or bool(self._unparsed)
 
     def _parse(self):
-        bytestring = b''
+        bytestring = b""
         sub_parser = None
         sub_parser_map = {
-            b'+': self._parse_string(),
-            b'-': self._parse_error(),
-            b':': self._parse_integer(),
-            b'$': self._parse_bulk_string(),
-            b'*': self._parse_array()}
+            b"+": self._parse_string(),
+            b"-": self._parse_error(),
+            b":": self._parse_integer(),
+            b"$": self._parse_bulk_string(),
+            b"*": self._parse_array(),
+        }
         for v in sub_parser_map.values():
             next(v)  # pylint: disable=stop-iteration-return
         data = None
@@ -142,7 +145,7 @@ class Protocol:
         data = None
         while True:
             bytestring = yield data
-            data = bytestring[1:].split(b'\r\n', 1)
+            data = bytestring[1:].split(b"\r\n", 1)
             if len(data) != 2:
                 data = False, bytestring
             if self._encoding:
@@ -152,7 +155,7 @@ class Protocol:
         data = None
         while True:
             bytestring = yield data
-            data = bytestring[1:].split(b'\r\n', 1)
+            data = bytestring[1:].split(b"\r\n", 1)
             if len(data) != 2:
                 data = False, bytestring
             else:
@@ -162,7 +165,7 @@ class Protocol:
         data = None
         while True:
             bytestring = yield data
-            data = bytestring[1:].split(b'\r\n', 1)
+            data = bytestring[1:].split(b"\r\n", 1)
             if len(data) != 2:
                 data = False, bytestring
             else:
@@ -172,7 +175,7 @@ class Protocol:
         data = None
         while True:
             bytestring = yield data
-            data = bytestring[1:].split(b'\r\n', 1)
+            data = bytestring[1:].split(b"\r\n", 1)
             if len(data) != 2:
                 data = False, bytestring
                 continue
@@ -192,7 +195,7 @@ class Protocol:
         out = []
         while True:
             bytestring = yield data
-            data = bytestring[1:].split(b'\r\n', 1)
+            data = bytestring[1:].split(b"\r\n", 1)
             if len(data) != 2:
                 data = False, bytestring
                 continue
@@ -275,19 +278,43 @@ class Redis:
         >>> await redis.close_connection()
     """
 
-    __slots__ = ('_scheme', '_host', '_port', '_username', '_password', '_db', '_path',
-                 '_connect_timeout', '_read_timeout', '_write_timeout', '_ssl_ctx', '_handshake_timeout',
-                 '_get_connection', '_conn', '_conn_lock', '_proto', '_pipeline', '_pipeline_buf', '_future',
-                 '_cmd_count', '_listener', '_subscription', '_pubsub_queue_maxsize', '_pubsub_queue')
+    __slots__ = (
+        "_scheme",
+        "_host",
+        "_port",
+        "_username",
+        "_password",
+        "_db",
+        "_path",
+        "_connect_timeout",
+        "_read_timeout",
+        "_write_timeout",
+        "_ssl_ctx",
+        "_handshake_timeout",
+        "_get_connection",
+        "_conn",
+        "_conn_lock",
+        "_proto",
+        "_pipeline",
+        "_pipeline_buf",
+        "_future",
+        "_cmd_count",
+        "_listener",
+        "_subscription",
+        "_pubsub_queue_maxsize",
+        "_pubsub_queue",
+    )
 
-    def __init__(self,
-                 address: str = 'redis://localhost:6379?db=0',
-                 connect_timeout: float = CONNECT_TIMEOUT,
-                 timeout: tp.Union[float, tuple, list] = TIMEOUT,
-                 ssl_ctx: ssl.SSLContext = None,
-                 encoding=None,
-                 errors=None,
-                 pubsub_queue_maxsize=None):
+    def __init__(
+        self,
+        address: str = "redis://localhost:6379?db=0",
+        connect_timeout: float = CONNECT_TIMEOUT,
+        timeout: tp.Union[float, tuple, list] = TIMEOUT,
+        ssl_ctx: ssl.SSLContext = None,
+        encoding=None,
+        errors=None,
+        pubsub_queue_maxsize=None,
+    ):
         """
         Args:
             address (:obj:`str`, optional): The Redis server address and settings to connect as uri:
@@ -325,13 +352,13 @@ class Redis:
             ssl_ctx (:py:class:`ssl.SSLContext`, optional): SSL context object to enable SSL(TLS).
         """
         parsed = self._parse_address(address)
-        self._scheme = parsed['scheme']
-        self._host = parsed['host']
-        self._username = parsed.get('username')
-        self._password = parsed.get('password')
-        self._port = parsed.get('port', 6379)
-        self._db = parsed.get('db', 0)
-        self._path = parsed.get('path')
+        self._scheme = parsed["scheme"]
+        self._host = parsed["host"]
+        self._username = parsed.get("username")
+        self._password = parsed.get("password")
+        self._port = parsed.get("port", 6379)
+        self._db = parsed.get("db", 0)
+        self._path = parsed.get("path")
         self._connect_timeout = connect_timeout
         if isinstance(timeout, (tuple, list)):
             self._read_timeout, self._write_timeout = timeout
@@ -355,57 +382,61 @@ class Redis:
         if pubsub_queue_maxsize is not None:
             self._pubsub_queue_maxsize = pubsub_queue_maxsize
         self._pubsub_queue = PubSubQueue(maxsize=self._pubsub_queue_maxsize)
-        if self._scheme == 'redis':
+        if self._scheme == "redis":
             self._get_connection = functools.partial(
                 asyncio.open_connection,
                 host=self._host,
                 port=self._port,
                 ssl=self._ssl_ctx,
-                ssl_handshake_timeout=self._handshake_timeout)
-        elif self._scheme == 'redis+unix':
+                ssl_handshake_timeout=self._handshake_timeout,
+            )
+        elif self._scheme == "redis+unix":
             self._get_connection = functools.partial(
                 asyncio.open_unix_connection,
                 path=self._path,
                 ssl=self._ssl_ctx,
-                ssl_handshake_timeout=self._handshake_timeout)
+                ssl_handshake_timeout=self._handshake_timeout,
+            )
 
     def __str__(self):
-        if self._scheme == 'redis':
-            return '<{}.{} ({}, {}) [{}]>'.format(
-                self.__class__.__module__, self.__class__.__name__, self._host, self._port, hex(id(self)))
-        return '<{}.{} ({}) [{}]>'.format(
-            self.__class__.__module__, self.__class__.__name__, os.path.basename(self._path), hex(id(self)))
+        if self._scheme == "redis":
+            return "<{}.{} ({}, {}) [{}]>".format(
+                self.__class__.__module__, self.__class__.__name__, self._host, self._port, hex(id(self))
+            )
+        return "<{}.{} ({}) [{}]>".format(
+            self.__class__.__module__, self.__class__.__name__, os.path.basename(self._path), hex(id(self))
+        )
 
     @classmethod
     def _parse_address(cls, address: str) -> dict:
         parsed = urllib.parse.urlparse(address)
-        out = {'scheme': parsed.scheme, 'host': parsed.hostname}
+        out = {"scheme": parsed.scheme, "host": parsed.hostname}
         if not parsed.scheme:
-            raise ValueError('Scheme is required')
-        if parsed.scheme == 'redis':
+            raise ValueError("Scheme is required")
+        if parsed.scheme == "redis":
             if not parsed.hostname:
-                raise ValueError('Hostname is required')
+                raise ValueError("Hostname is required")
             if parsed.path:
-                raise ValueError('Path param is not supported')
-        elif parsed.scheme == 'redis+unix':
+                raise ValueError("Path param is not supported")
+        elif parsed.scheme == "redis+unix":
             if not parsed.path:
-                raise ValueError('Unix socket path is required')
-            out['path'] = parsed.path
+                raise ValueError("Unix socket path is required")
+            out["path"] = parsed.path
         else:
-            raise ValueError('Scheme is not supported %s' % parsed.scheme)
+            raise ValueError("Scheme is not supported %s" % parsed.scheme)
         if parsed.query:
             # pylint: disable=consider-using-dict-comprehension
-            db = dict([param_str.split('=', 1) for param_str in parsed.query.split('&')]).get('db')
+            db = dict([param_str.split("=", 1) for param_str in parsed.query.split("&")]).get("db")
             if db is not None:
                 if not db.isdigit():
-                    raise ValueError('db param must be integer')
-                out['db'] = int(db)
+                    raise ValueError("db param must be integer")
+                out["db"] = int(db)
         if parsed.username:
-            out['username'] = parsed.username
+            out["username"] = parsed.username
         if parsed.password:
-            out['password'] = parsed.password
+            out["password"] = parsed.password
         if parsed.port:
-            out['port'] = parsed.port
+            out["port"] = parsed.port
         return out
 
     def __repr__(self):
@@ -460,7 +491,7 @@ class Redis:
     async def pipeline_execute(self):
         """Execute pipeline buffer"""
         if self._listener:
-            raise SiderPyError('Connection in PubSub mode')
+            raise SiderPyError("Connection in PubSub mode")
         if self._pipeline_buf:
             res = await self._execute_cmd_list(self._pipeline_buf)
             self._pipeline_buf = []
@@ -509,11 +540,11 @@ class Redis:
         cmd_list = []
         if self._password is not None:
             if self._username is not None:
-                cmd_list.append(['auth', (self._username, self._password)])
+                cmd_list.append(["auth", (self._username, self._password)])
             else:
-                cmd_list.append(['auth', (self._password,)])
+                cmd_list.append(["auth", (self._password,)])
         if self._db is not None and self._db != 0:
-            cmd_list.append(['select', (self._db,)])
+            cmd_list.append(["select", (self._db,)])
         if cmd_list:
             try:
                 await self._execute_cmd_list(cmd_list)
@@ -530,7 +561,7 @@ class Redis:
                 raw = await r.read(2048)
             else:
                 raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
-            if raw == b'' and r.at_eof():
+            if raw == b"" and r.at_eof():
                 raise ConnectionError
             # # pylint: disable=protected-access
             # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
@@ -550,7 +581,7 @@ class Redis:
         array = bytearray()
         for cmd_name, args in cmd_list:
             array.extend(self._proto.make_cmd(cmd_name, args))
-            if not self._subscription and cmd_name in {'subscribe', 'psubscribe'}:
+            if not self._subscription and cmd_name in {"subscribe", "psubscribe"}:
                 self._subscription = True
         if self._subscription and self._listener is None:
             self._listener = asyncio.create_task(self._listen())
@@ -575,7 +606,7 @@ class Redis:
             if len(data) == 1:
                 data = data[0]
         except (asyncio.CancelledError, Exception) as e:
-            LOG.debug('%s close connection %s', self, w)
+            LOG.debug("%s close connection %s", self, w)
             w.close()
             await w.wait_closed()
             self._conn = None
@@ -591,7 +622,7 @@ class Redis:
                 data = await self._read()
                 for item in data:
                     if self._subscription:
-                        if isinstance(item, list) and item[0] in {b'message', b'pmessage'}:
+                        if isinstance(item, list) and item[0] in {b"message", b"pmessage"}:
                             if not self._pubsub_queue.full():
                                 self._pubsub_queue.put_nowait(item)
                             else:
@@ -599,11 +630,11 @@ class Redis:
                         else:
                             if isinstance(item, Exception):
                                 incomming.append(item)
-                            elif item[1] == b'':
+                            elif item[1] == b"":
                                 incomming.append(item[0])
                             else:
                                 incomming.append(item)
-                                if item[0] in {b'unsubscribe', b'punsubscribe'} and item[2] == 0:
+                                if item[0] in {b"unsubscribe", b"punsubscribe"} and item[2] == 0:
                                     self._subscription = False
                                     self._pubsub_queue.close()
                     else:
@@ -614,10 +645,10 @@ class Redis:
         except asyncio.CancelledError:
             self._pubsub_queue.close()
         except (asyncio.TimeoutError, ConnectionError, OSError) as e:
-            LOG.debug('%s %s %s', self, e.__class__.__name__, e)
+            LOG.debug("%s %s %s", self, e.__class__.__name__, e)
             self._pubsub_queue.close(exc=e)
         except Exception as e:
-            LOG.error('%s %s %s', self, e.__class__.__name__, e)
+            LOG.error("%s %s %s", self, e.__class__.__name__, e)
             self._pubsub_queue.close(exc=e)
         finally:
             self._listener = None
@@ -630,11 +661,11 @@ class Redis:
 
     async def delete(self, *args):
         """Redis `del` command"""
-        return await self.execute_cmd('del', *args)
+        return await self.execute_cmd("del", *args)
 
     async def execute(self):
         """Redis `exec` command"""
-        return await self.execute_cmd('exec')
+        return await self.execute_cmd("exec")
 
     def __getattr__(self, attr_name: str):
         return functools.partial(self.execute_cmd, attr_name)
@@ -642,7 +673,7 @@ class Redis:
 
 class Pool:
 
-    __slots__ = ('_factory', '_size', '_queue', '_used')
+    __slots__ = ("_factory", "_size", "_queue", "_used")
 
     def __init__(self, factory: tp.Coroutine, size: int = POOL_SIZE):
         self._factory = factory
@@ -653,8 +684,9 @@ class Pool:
             self._queue.put_nowait(None)
 
     def __str__(self):
-        return '<{}.{} size {}, available {} [{}]>'.format(
-            self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self)))
+        return "<{}.{} size {}, available {} [{}]>".format(
+            self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self))
+        )
 
     def __repr__(self):
         return self.__str__()
@@ -721,15 +753,17 @@ class RedisPool:
         >>>     ...
     """
 
-    __slots__ = ('_address', '_connect_timeout', '_read_timeout', '_write_timeout', '_size', '_ssl_ctx', '_pool')
+    __slots__ = ("_address", "_connect_timeout", "_read_timeout", "_write_timeout", "_size", "_ssl_ctx", "_pool")
 
-    def __init__(self,
-                 address: str = 'redis://localhost:6379?db=0',
-                 connect_timeout: float = CONNECT_TIMEOUT,
-                 timeout: tp.Union[float, tuple, list] = TIMEOUT,
-                 size: int = POOL_SIZE,
-                 pool_cls=Pool,
-                 ssl_ctx: ssl.SSLContext = None):
+    def __init__(
+        self,
+        address: str = "redis://localhost:6379?db=0",
+        connect_timeout: float = CONNECT_TIMEOUT,
+        timeout: tp.Union[float, tuple, list] = TIMEOUT,
+        size: int = POOL_SIZE,
+        pool_cls=Pool,
+        ssl_ctx: ssl.SSLContext = None,
+    ):
         """
         Args:
             address (:obj:`str`, optional): same as :obj:`address` argument for :py:class:`Redis`.
@@ -750,17 +784,18 @@ class RedisPool:
         self._pool = pool_cls(self._factory, size=size)
 
     def __str__(self):
-        return '<{}.{} {} [{}]>'.format(
-            self.__class__.__module__, self.__class__.__name__, self._pool, hex(id(self)))
+        return "<{}.{} {} [{}]>".format(self.__class__.__module__, self.__class__.__name__, self._pool, hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
 
     async def _factory(self) -> Redis:
-        return Redis(address=self._address,
-                     connect_timeout=self._connect_timeout,
-                     timeout=(self._read_timeout, self._write_timeout),
-                     ssl_ctx=self._ssl_ctx)
+        return Redis(
+            address=self._address,
+            connect_timeout=self._connect_timeout,
+            timeout=(self._read_timeout, self._write_timeout),
+            ssl_ctx=self._ssl_ctx,
+        )
 
     @contextlib.asynccontextmanager
     async def get_redis(self, timeout: float = None):
@@ -783,14 +818,17 @@ class RedisPool:
                     await asyncio.wait_for(asyncio.wait({redis._listener}), timeout)
                 except asyncio.TimeoutError:
                     await redis.close_connection()
-                    raise SiderPyError('Closising Redis instance because active pub/sub')
+                    # pylint: disable=raise-missing-from
+                    raise SiderPyError("Closising Redis instance because active pub/sub")
         finally:
             self._pool.put(redis)
 
     async def close_connections(self):
         """Close all established connections"""
+
         async def close(redis):
             await redis.close_connection()
+
         await self._pool.close(close)
 
     async def _execute(self, attr_name: str, *args):
@@ -798,6 +836,10 @@ class RedisPool:
             return await redis.execute_cmd(attr_name, *args)
 
     def __getattr__(self, attr_name: str):
-        if attr_name in {'multi', 'exec', 'discard', 'subscribe', 'psubscribe', 'unsubscribe', 'punsubscribe'}:
+        if attr_name in {"multi", "exec", "discard", "subscribe", "psubscribe", "unsubscribe", "punsubscribe"}:
             raise AttributeError("'%s' object has no attribute '%s'" % (self, attr_name))
         return functools.partial(self._execute, attr_name)
+
+    async def delete(self, *args):
+        """Redis `del` command"""
+        return await self._execute("del", *args)
