@@ -58,6 +58,8 @@ class TestProtocol:
         assert proto.make_cmd("set", ["key", "value"]) == b"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
         assert proto.make_cmd("set", ["key", b"value"]) == b"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
         assert proto.make_cmd("set", ["key", 1]) == b"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$1\r\n1\r\n"
+        with pytest.raises(TypeError):
+            assert proto.make_cmd("blpop", ["key", None])
 
     def test__has_data(self):
         proto = siderpy.Protocol()

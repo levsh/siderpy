@@ -100,6 +100,8 @@ class Protocol:
         for arg in cmd_args:
             if isinstance(arg, (str, numbers.Number)):
                 arg = str(arg).encode()
+            elif not isinstance(arg, (bytes, bytearray)):
+                raise TypeError(f"Wrong argument '{arg}' type {type(arg)}")
             buf.extend(b"$%d\r\n%s\r\n" % (len(arg), arg))
         return buf
 
