@@ -22,7 +22,7 @@ copyright = '2020, Roma Koshel'
 author = 'Roma Koshel'
 
 # The full version, including alpha/beta/rc tags
-release = '0.1'
+release = '0.2.0'
 
 import os
 import sys

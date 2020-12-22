@@ -252,7 +252,7 @@ class PubSubQueue(asyncio.Queue):
             self._getters.append(getter)
             try:
                 await getter
-            except:
+            except:  # noqa: E722
                 getter.cancel()  # Just in case getter is not done yet.
                 try:
                     # Clean self._getters from canceled getters.
