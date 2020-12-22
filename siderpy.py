@@ -242,13 +242,31 @@ class PubSubQueue(asyncio.Queue):
                 else:
                     getter.set_result(None)
 
-    # pylint: disable=arguments-differ
-    async def get(self, *args, **kwds):
-        if self._closed and self.empty():
-            if self._exc:
-                raise QueueClosedError from self._exc
-            raise QueueClosedError
-        return await super().get(*args, **kwds)
+    async def get(self):
+        while self.empty():
+            if self._closed:
+                if self._exc:
+                    raise QueueClosedError from self._exc
+                raise QueueClosedError
+            getter = self._loop.create_future()
+            self._getters.append(getter)
+            try:
+                await getter
+            except:
+                getter.cancel()  # Just in case getter is not done yet.
+                try:
+                    # Clean self._getters from canceled getters.
+                    self._getters.remove(getter)
+                except ValueError:
+                    # The getter could be removed from self._getters by a
+                    # previous put_nowait call.
+                    pass
+                if not self.empty() and not getter.cancelled():
+                    # We were woken up by put_nowait(), but can't take
+                    # the call.  Wake up the next in line.
+                    self._wakeup_next(self._getters)
+                raise
+        return self.get_nowait()
 
     # pylint: disable=arguments-differ
     def _put(self, *args, **kwds):
@@ -260,11 +278,12 @@ class PubSubQueue(asyncio.Queue):
         return self
 
     async def __anext__(self):
-        if self.qsize():
-            return self.get_nowait()
-        if self._closed:
+        try:
+            if self.qsize():
+                return self.get_nowait()
+            return await self.get()
+        except QueueClosedError:
             raise self._exc or StopAsyncIteration
-        return await self.get()
 
 
 class Redis:
