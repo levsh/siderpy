@@ -18,11 +18,11 @@
 # -- Project information -----------------------------------------------------
 
 project = 'SiderPy'
-copyright = '2020, Roma Koshel'
+copyright = '2020-2021, Roma Koshel'
 author = 'Roma Koshel'
 
 # The full version, including alpha/beta/rc tags
-release = '0.2.0'
+release = '0.3.0'
 
 import os
 import sys

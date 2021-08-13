@@ -66,8 +66,10 @@ class Test:
     images = [
         pytest.param("siderpy_tests_3.7", id="py3.7"),
         pytest.param("siderpy_tests_3.8", id="py3.8"),
+        pytest.param("siderpy_tests_3.9", id="py3.9"),
         pytest.param("siderpy_tests_hiredis_3.7", id="hiredis_py3.7"),
         pytest.param("siderpy_tests_hiredis_3.8", id="hiredis_py3.8"),
+        pytest.param("siderpy_tests_hiredis_3.9", id="hiredis_py3.9"),
     ]
 
     envs = [
@@ -76,7 +78,7 @@ class Test:
     ]
 
     commands = [
-        pytest.param("pytest --timeout=15 -sv /opt/siderpy/tests/tests_small.py --cov", id="small"),
+        pytest.param("pytest --timeout=15 -sv /opt/siderpy/tests/tests_small.py", id="small"),
         pytest.param("pytest --timeout=30 -sv /opt/siderpy/tests/tests_medium.py", id="medium"),
     ]
 

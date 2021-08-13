@@ -54,12 +54,12 @@ except `execute` (exec) and `delete` (del), but calling command is same as calli
     await redis.set('key', 'value')
     response = await redis.get('key')
 
-After the Redis object no longer needed call :py:meth:`~siderpy.Redis.close_connection` method 
+After the Redis object no longer needed call :py:meth:`~siderpy.Redis.close` method 
 to close underlying connection to the server and free resources.
 
 .. code-block:: python
 
-    await redis.close_connection()
+    await redis.close()
 
 
 Transactions with multi/exec

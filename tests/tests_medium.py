@@ -38,7 +38,7 @@ async def redis():
     try:
         yield redis
     finally:
-        await redis.close_connection()
+        await redis.close()
 
 
 @pytest.fixture(scope="function")
@@ -58,7 +58,7 @@ async def pool():
     try:
         yield pool
     finally:
-        await pool.close_connections()
+        await pool.close()
 
 
 class TestRedis:
@@ -328,7 +328,7 @@ class TestRedis:
             with pytest.raises(
                 siderpy.RedisError,
                 match=(
-                    r"ERR Can't execute 'get': only \(P\)SUBSCRIBE / \(P\)UNSUBSCRIBE / PING / QUIT "
+                    r"ERR Can't execute 'get': only \(P\)SUBSCRIBE / \(P\)UNSUBSCRIBE / PING / QUIT / RESET "
                     "are allowed in this context"
                 ),
             ):

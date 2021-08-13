@@ -42,7 +42,7 @@ class TestProtocol:
 
     def test__str(self):
         proto = siderpy.Protocol()
-        assert str(proto) == "<siderpy.Protocol hiredis=False [{}]>".format(hex(id(proto)))
+        assert str(proto) == "[Protocol hiredis=False at {}]".format(hex(id(proto)))
 
     def test_reset(self):
         proto = siderpy.Protocol()
@@ -208,7 +208,7 @@ class TestProtocolHiredis:
 
     def test__str(self):
         proto = siderpy.Protocol()
-        assert str(proto) == "<siderpy.Protocol hiredis=True [{}]>".format(hex(id(proto)))
+        assert str(proto) == "[Protocol hiredis=True at {}]".format(hex(id(proto)))
 
     def test_reset(self):
         proto = siderpy.Protocol()
@@ -329,21 +329,22 @@ class TestRedis:
 
     def test__str(self):
         redis = siderpy.Redis("redis://127.0.0.1:5555")
-        assert str(redis) == "<siderpy.Redis (127.0.0.1, 5555) [{}]>".format(hex(id(redis)))
+        assert str(redis) == "[Redis(127.0.0.1, 5555) at {}]".format(hex(id(redis)))
 
         redis = siderpy.Redis("redis+unix:///var/run/redis.sock")
-        assert str(redis) == "<siderpy.Redis (redis.sock) [{}]>".format(hex(id(redis)))
+        assert str(redis) == "[Redis(redis.sock) at {}]".format(hex(id(redis)))
 
-    async def test_close_connection(self):
+    async def test_close(self):
         redis = siderpy.Redis()
         mock_conn = mock.MagicMock()
         redis._conn = mock_conn
         mock_queue = mock.MagicMock()
         redis._pubsub_queue = mock_queue
-        await redis.close_connection()
+        await redis.close()
         mock_conn[1].close.assert_called_once()
         mock_queue.close.assert_not_called()
-        assert redis._conn is None
+        assert redis._conn
+        assert redis._conn[1].is_closing()
 
         with mock.patch("siderpy.Redis._cancel_listener") as mock_cancel_listener:
             redis = siderpy.Redis()
@@ -353,10 +354,10 @@ class TestRedis:
             redis._conn = mock_conn
             mock_queue = mock.MagicMock()
             redis._pubsub_queue = mock_queue
-            await redis.close_connection()
+            await redis.close()
             mock_cancel_listener.assert_awaited_once()
             mock_conn[1].close.assert_called_once()
-            assert redis._conn is None
+            assert redis._conn
 
     def test_pipeline_on(self):
         redis = siderpy.Redis()
@@ -442,13 +443,13 @@ class TestRedis:
     async def test__open_connection_auth_failed(self):
         with mock.patch("asyncio.open_connection") as mock_func:
             with mock.patch("siderpy.Redis._execute_cmd_list", side_effect=siderpy.RedisError) as mock_execute_cmd_list:
-                with mock.patch("siderpy.Redis.close_connection") as mock_close_connection:
+                with mock.patch("siderpy.Redis.close") as mock_close:
                     redis = siderpy.Redis("redis://username:password@127.0.0.1")
                     with pytest.raises(siderpy.RedisError):
                         await redis._open_connection()
             mock_func.assert_awaited_once_with(host="127.0.0.1", port=6379, ssl=None, ssl_handshake_timeout=None)
             mock_execute_cmd_list.assert_awaited_once_with([["auth", ("username", "password")]])
-            mock_close_connection.assert_awaited_once()
+            mock_close.assert_awaited_once()
 
     @mock.patch("asyncio.wait_for")
     async def test__read(self, mock_wait_for):
@@ -606,7 +607,7 @@ class Test_Pool:
 
     def test__str(self):
         pool = siderpy.Pool(lambda *args: args)
-        assert str(pool) == "<siderpy.Pool size {}, available {} [{}]>".format(
+        assert str(pool) == "[Pool size {}, available {} at {}]".format(
             siderpy.POOL_SIZE, siderpy.POOL_SIZE, hex(id(pool))
         )
 
@@ -680,4 +681,4 @@ class TestRedisPool:
 
     def test__str(self):
         pool = siderpy.RedisPool()
-        assert str(pool) == "<siderpy.RedisPool {} [{}]>".format(pool._pool, hex(id(pool)))
+        assert str(pool) == "[RedisPool {} at {}]".format(pool._pool, hex(id(pool)))

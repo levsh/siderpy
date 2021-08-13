@@ -9,7 +9,7 @@ __all__ = [
     "Redis",
     "RedisPool",
 ]
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 import asyncio
 import collections
@@ -80,9 +80,7 @@ class Protocol:
             self.has_data = self._reader.has_data
 
     def __str__(self):
-        return "<{}.{} hiredis={} [{}]>".format(
-            self.__class__.__module__, self.__class__.__name__, bool(self._reader), hex(id(self))
-        )
+        return "[{} hiredis={} at {}]".format(self.__class__.__name__, bool(self._reader), hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -188,7 +186,9 @@ class Protocol:
             if len(remain) - 2 < strlen:
                 data = False, bytestring
                 continue
+            # fmt: off
             data = remain[:strlen], remain[strlen + 2:]
+            # fmt: on
             if self._encoding:
                 data[0] = data[0].decode(**self._encoding)
 
@@ -296,7 +296,7 @@ class Redis:
         >>> redis = siderpy.Redis('redis://username:password@localhost:6379?db=0')
         >>> await redis.ping()
         >>> ...
-        >>> await redis.close_connection()
+        >>> await redis.close()
     """
 
     __slots__ = (
@@ -421,12 +421,11 @@ class Redis:
 
     def __str__(self):
         if self._scheme == "redis":
-            return "<{}.{} ({}, {}) [{}]>".format(
-                self.__class__.__module__, self.__class__.__name__, self._host, self._port, hex(id(self))
-            )
-        return "<{}.{} ({}) [{}]>".format(
-            self.__class__.__module__, self.__class__.__name__, os.path.basename(self._path), hex(id(self))
-        )
+            return "[{}({}, {}) at {}]".format(self.__class__.__name__, self._host, self._port, hex(id(self)))
+        return "[{}({}) at {}]".format(self.__class__.__name__, os.path.basename(self._path), hex(id(self)))
+
+    def __repr__(self):
+        return self.__str__()
 
     @classmethod
     def _parse_address(cls, address: str) -> dict:
@@ -460,15 +459,11 @@ class Redis:
             out["port"] = parsed.port
         return out
 
-    def __repr__(self):
-        return self.__str__()
-
-    async def close_connection(self):
+    async def close(self):
         """Close established connection"""
         await self._cancel_listener()
         if self._conn is not None:
             self._conn[1].close()
-            self._conn = None
 
     def pipeline_on(self):
         """Enable pipeline mode. In this mode, all commands are saved to the internal pipeline buffer
@@ -551,7 +546,6 @@ class Redis:
                 pass
 
     async def _open_connection(self):
-        # LOG.debug('%s create connection', self)
         await self._cancel_listener()
         self._proto.reset()
         if self._connect_timeout is None:
@@ -570,7 +564,7 @@ class Redis:
             try:
                 await self._execute_cmd_list(cmd_list)
             except Exception:
-                await self.close_connection()
+                await self.close()
                 raise
 
     async def _read(self):
@@ -584,8 +578,6 @@ class Redis:
                 raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
             if raw == b"" and r.at_eof():
                 raise ConnectionError
-            # # pylint: disable=protected-access
-            # LOG.debug('%s fd=%s read %s', self, r._transport.get_extra_info('socket').fileno(), raw)
             proto.feed(raw)
             while True:
                 item = proto.gets()
@@ -609,7 +601,6 @@ class Redis:
         if self._listener is not None:
             self._future = asyncio.get_event_loop().create_future()
         _, w = self._conn
-        # LOG.debug('%s fd=%s write %s', self, w.get_extra_info('socket').fileno(), array)
         try:
             w.write(array)
             if self._write_timeout is not None:
@@ -627,7 +618,6 @@ class Redis:
             if len(data) == 1:
                 data = data[0]
         except (asyncio.CancelledError, Exception) as e:
-            LOG.debug("%s close connection %s", self, w)
             w.close()
             await w.wait_closed()
             self._conn = None
@@ -666,7 +656,7 @@ class Redis:
         except asyncio.CancelledError:
             self._pubsub_queue.close()
         except (asyncio.TimeoutError, ConnectionError, OSError) as e:
-            LOG.debug("%s %s %s", self, e.__class__.__name__, e)
+            LOG.error("%s %s %s", self, e.__class__.__name__, e)
             self._pubsub_queue.close(exc=e)
         except Exception as e:
             LOG.error("%s %s %s", self, e.__class__.__name__, e)
@@ -705,8 +695,8 @@ class Pool:
             self._queue.put_nowait(None)
 
     def __str__(self):
-        return "<{}.{} size {}, available {} [{}]>".format(
-            self.__class__.__module__, self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self))
+        return "[{} size {}, available {} at {}]".format(
+            self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self))
         )
 
     def __repr__(self):
@@ -724,11 +714,9 @@ class Pool:
                 self._queue.put_nowait(None)
                 raise e
         self._used.add(item)
-        # LOG.debug('%s get %s', self, item)
         return item
 
     def put(self, item):
-        # LOG.debug('%s put %s', self, item)
         if item in self._used:
             self._used.remove(item)
             self._queue.put_nowait(item)
@@ -742,7 +730,6 @@ class Pool:
         try:
             yield item
         finally:
-            # LOG.debug('%s put %s', self, item)
             self._used.remove(item)
             self._queue.put_nowait(item)
 
@@ -763,7 +750,7 @@ class RedisPool:
         >>> await pool.ping()
         >>> await pool.get('key')
         >>> ...
-        >>> await pool.close_connections()
+        >>> await pool.close()
 
     Pool doesn't implement multi/exec and pub/sub commands.
     For performance reasons it's better to use Redis instance as command executor instead of pool itself. For example:
@@ -805,7 +792,7 @@ class RedisPool:
         self._pool = pool_cls(self._factory, size=size)
 
     def __str__(self):
-        return "<{}.{} {} [{}]>".format(self.__class__.__module__, self.__class__.__name__, self._pool, hex(id(self)))
+        return "[{} {} at {}]".format(self.__class__.__name__, self._pool, hex(id(self)))
 
     def __repr__(self):
         return self.__str__()
@@ -838,17 +825,17 @@ class RedisPool:
                     # pylint: disable=protected-access
                     await asyncio.wait_for(asyncio.wait({redis._listener}), timeout)
                 except asyncio.TimeoutError:
-                    await redis.close_connection()
+                    await redis.close()
                     # pylint: disable=raise-missing-from
                     raise SiderPyError("Closising Redis instance because active pub/sub")
         finally:
             self._pool.put(redis)
 
-    async def close_connections(self):
+    async def close(self):
         """Close all established connections"""
 
         async def close(redis):
-            await redis.close_connection()
+            await redis.close()
 
         await self._pool.close(close)
 
