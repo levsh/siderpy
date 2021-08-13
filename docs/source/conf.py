@@ -21,12 +21,13 @@ project = 'SiderPy'
 copyright = '2020-2021, Roma Koshel'
 author = 'Roma Koshel'
 
-# The full version, including alpha/beta/rc tags
-release = '0.3.0'
-
 import os
 import sys
 sys.path.insert(0, os.path.abspath('../..'))
+
+from siderpy import __version__
+# The full version, including alpha/beta/rc tags
+release = __version__
 
 import sphinx_rtd_theme
 
