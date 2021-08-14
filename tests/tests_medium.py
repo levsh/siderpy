@@ -87,7 +87,6 @@ class TestRedis:
         assert resp == 10
 
     async def test_auth(self, event_loop, prepare, redis):
-        # with pytest.raises(siderpy.RedisError, match='ERR Client sent AUTH, but no password is set'):
         with pytest.raises(
             siderpy.RedisError,
             match=(

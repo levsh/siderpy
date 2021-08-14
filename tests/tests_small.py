@@ -42,7 +42,7 @@ class TestProtocol:
 
     def test__str(self):
         proto = siderpy.Protocol()
-        assert str(proto) == "[Protocol hiredis=False at {}]".format(hex(id(proto)))
+        assert str(proto) == "[Protocol hiredis=False]"
 
     def test_reset(self):
         proto = siderpy.Protocol()
@@ -208,7 +208,7 @@ class TestProtocolHiredis:
 
     def test__str(self):
         proto = siderpy.Protocol()
-        assert str(proto) == "[Protocol hiredis=True at {}]".format(hex(id(proto)))
+        assert str(proto) == "[Protocol hiredis=True]"
 
     def test_reset(self):
         proto = siderpy.Protocol()
@@ -329,10 +329,10 @@ class TestRedis:
 
     def test__str(self):
         redis = siderpy.Redis("redis://127.0.0.1:5555")
-        assert str(redis) == "[Redis(127.0.0.1, 5555) at {}]".format(hex(id(redis)))
+        assert str(redis) == "[Redis(127.0.0.1, 5555)]"
 
         redis = siderpy.Redis("redis+unix:///var/run/redis.sock")
-        assert str(redis) == "[Redis(redis.sock) at {}]".format(hex(id(redis)))
+        assert str(redis) == "[Redis(redis.sock)]"
 
     async def test_close(self):
         redis = siderpy.Redis()
@@ -607,9 +607,7 @@ class Test_Pool:
 
     def test__str(self):
         pool = siderpy.Pool(lambda *args: args)
-        assert str(pool) == "[Pool size {}, available {} at {}]".format(
-            siderpy.POOL_SIZE, siderpy.POOL_SIZE, hex(id(pool))
-        )
+        assert str(pool) == "[Pool {}/{}]".format(siderpy.POOL_SIZE, siderpy.POOL_SIZE)
 
     async def test_get(self):
         item = object()
@@ -681,4 +679,4 @@ class TestRedisPool:
 
     def test__str(self):
         pool = siderpy.RedisPool()
-        assert str(pool) == "[RedisPool {} at {}]".format(pool._pool, hex(id(pool)))
+        assert str(pool) == "[RedisPool(redis://localhost:6379?db=0){}]".format(pool._pool)

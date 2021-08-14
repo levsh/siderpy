@@ -9,7 +9,7 @@ __all__ = [
     "Redis",
     "RedisPool",
 ]
-__version__ = "0.3.2"
+__version__ = "0.3.4"
 
 import asyncio
 import collections
@@ -80,7 +80,7 @@ class Protocol:
             self.has_data = self._reader.has_data
 
     def __str__(self):
-        return "[{} hiredis={} at {}]".format(self.__class__.__name__, bool(self._reader), hex(id(self)))
+        return "[{} hiredis={}]".format(self.__class__.__name__, bool(self._reader))
 
     def __repr__(self):
         return self.__str__()
@@ -421,8 +421,8 @@ class Redis:
 
     def __str__(self):
         if self._scheme == "redis":
-            return "[{}({}, {}) at {}]".format(self.__class__.__name__, self._host, self._port, hex(id(self)))
-        return "[{}({}) at {}]".format(self.__class__.__name__, os.path.basename(self._path), hex(id(self)))
+            return "[{}({}, {})]".format(self.__class__.__name__, self._host, self._port)
+        return "[{}({})]".format(self.__class__.__name__, os.path.basename(self._path))
 
     def __repr__(self):
         return self.__str__()
@@ -695,8 +695,8 @@ class Pool:
             self._queue.put_nowait(None)
 
     def __str__(self):
-        return "[{} size {}, available {} at {}]".format(
-            self.__class__.__name__, self._size, self._queue.qsize(), hex(id(self))
+        return "[{} {}/{}]".format(
+            self.__class__.__name__, self._size, self._queue.qsize()
         )
 
     def __repr__(self):
@@ -792,7 +792,7 @@ class RedisPool:
         self._pool = pool_cls(self._factory, size=size)
 
     def __str__(self):
-        return "[{} {} at {}]".format(self.__class__.__name__, self._pool, hex(id(self)))
+        return "[{}({}){}]".format(self.__class__.__name__, self._address, self._pool)
 
     def __repr__(self):
         return self.__str__()
