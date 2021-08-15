@@ -9,7 +9,7 @@ __all__ = [
     "Redis",
     "RedisPool",
 ]
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 import asyncio
 import collections
@@ -372,7 +372,7 @@ class Redis:
             errors (:py:class:`str`, optional): Error handling scheme to use for handling of decoding errors.
             ssl_ctx (:py:class:`ssl.SSLContext`, optional): SSL context object to enable SSL(TLS).
         """
-        parsed = self._parse_address(address)
+        parsed = self.parse_address(address)
         self._scheme = parsed["scheme"]
         self._host = parsed["host"]
         self._username = parsed.get("username")
@@ -428,7 +428,7 @@ class Redis:
         return self.__str__()
 
     @classmethod
-    def _parse_address(cls, address: str) -> dict:
+    def parse_address(cls, address: str) -> dict:
         parsed = urllib.parse.urlparse(address)
         out = {"scheme": parsed.scheme, "host": parsed.hostname}
         if not parsed.scheme:
@@ -695,9 +695,7 @@ class Pool:
             self._queue.put_nowait(None)
 
     def __str__(self):
-        return "[{} {}/{}]".format(
-            self.__class__.__name__, self._size, self._queue.qsize()
-        )
+        return "[{} {}/{}]".format(self.__class__.__name__, self._size, self._queue.qsize())
 
     def __repr__(self):
         return self.__str__()
@@ -761,7 +759,16 @@ class RedisPool:
         >>>     ...
     """
 
-    __slots__ = ("_address", "_connect_timeout", "_read_timeout", "_write_timeout", "_size", "_ssl_ctx", "_pool")
+    __slots__ = (
+        "_address",
+        "_parsed",
+        "_connect_timeout",
+        "_read_timeout",
+        "_write_timeout",
+        "_size",
+        "_ssl_ctx",
+        "_pool",
+    )
 
     def __init__(
         self,
@@ -781,6 +788,7 @@ class RedisPool:
             ssl_ctx (:py:class:`ssl.SSLContext`, optional): same as :obj:`ssl_ctx` argument for :py:class:`Redis`.
         """
         self._address = address
+        self._parsed = Redis.parse_address(address)
         self._connect_timeout = connect_timeout
         if isinstance(timeout, (tuple, list)):
             self._read_timeout, self._write_timeout = timeout
@@ -792,7 +800,14 @@ class RedisPool:
         self._pool = pool_cls(self._factory, size=size)
 
     def __str__(self):
-        return "[{}({}){}]".format(self.__class__.__name__, self._address, self._pool)
+        return "[{}({}://{}:{}?db={}){}]".format(
+            self.__class__.__name__,
+            self._parsed["scheme"],
+            self._parsed["host"],
+            self._parsed["port"],
+            self._parsed["db"],
+            self._pool,
+        )
 
     def __repr__(self):
         return self.__str__()
