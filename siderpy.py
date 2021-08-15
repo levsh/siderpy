@@ -9,7 +9,7 @@ __all__ = [
     "Redis",
     "RedisPool",
 ]
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 import asyncio
 import collections
@@ -451,12 +451,13 @@ class Redis:
                 if not db.isdigit():
                     raise ValueError("db param must be integer")
                 out["db"] = int(db)
+        if "db" not in out:
+            out["db"] = 0
         if parsed.username:
             out["username"] = parsed.username
         if parsed.password:
             out["password"] = parsed.password
-        if parsed.port:
-            out["port"] = parsed.port
+        out["port"] = parsed.port or 6379
         return out
 
     async def close(self):
