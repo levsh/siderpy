@@ -3,6 +3,7 @@ import os
 import ssl
 
 import pytest
+import pytest_asyncio
 
 import siderpy
 
@@ -27,7 +28,7 @@ def event_loop():
         loop.close()
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def redis():
     ssl_ctx = None
     if TESTS_USE_SSL:
@@ -41,13 +42,13 @@ async def redis():
         await redis.close()
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def prepare(event_loop, redis):
     await redis.flushall()
     yield
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def pool():
     ssl_ctx = None
     if TESTS_USE_SSL:
@@ -327,7 +328,7 @@ class TestRedis:
             with pytest.raises(
                 siderpy.RedisError,
                 match=(
-                    r"ERR Can't execute 'get': only \(P\)SUBSCRIBE / \(P\)UNSUBSCRIBE / PING / QUIT / RESET "
+                    r"ERR Can't execute 'get': only \(P|S\)SUBSCRIBE / \(P|S\)UNSUBSCRIBE / PING / QUIT / RESET "
                     "are allowed in this context"
                 ),
             ):

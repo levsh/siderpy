@@ -3,7 +3,6 @@ import collections
 import functools
 import sys
 import types
-
 from unittest import mock
 
 try:
@@ -15,10 +14,7 @@ import pytest
 
 import siderpy
 
-siderpy.LOG.setLevel("INFO")
-
-
-pytestmark = pytest.mark.asyncio
+siderpy.LOG.setLevel("DEBUG")
 
 
 class TestProtocol:
@@ -42,7 +38,7 @@ class TestProtocol:
 
     def test__str(self):
         proto = siderpy.Protocol()
-        assert str(proto) == "[Protocol hiredis=False]"
+        assert str(proto) == "Protocol[hiredis=False]"
 
     def test_reset(self):
         proto = siderpy.Protocol()
@@ -208,7 +204,7 @@ class TestProtocolHiredis:
 
     def test__str(self):
         proto = siderpy.Protocol()
-        assert str(proto) == "[Protocol hiredis=True]"
+        assert str(proto) == "Protocol[hiredis=True]"
 
     def test_reset(self):
         proto = siderpy.Protocol()
@@ -226,8 +222,8 @@ class TestProtocolHiredis:
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
 class TestRedis:
-    def test_parse_address(self):
-        parsed = siderpy.Redis.parse_address("redis://username:password@localhost:6379?db=0")
+    def test_parse_url(self):
+        parsed = siderpy.Redis.parse_url("redis://username:password@localhost:6379?db=0")
         assert parsed.get("scheme") == "redis"
         assert parsed.get("username") == "username"
         assert parsed.get("password") == "password"
@@ -236,19 +232,19 @@ class TestRedis:
         assert parsed.get("path") is None
         assert parsed.get("db") == 0
 
-    def test__parse_invalid_address(self):
+    def test__parse_invalid_url(self):
         with pytest.raises(ValueError, match=r"Scheme is required"):
-            siderpy.Redis.parse_address("localhost")
+            siderpy.Redis.parse_url("localhost")
         with pytest.raises(ValueError, match=r"Scheme is required"):
-            siderpy.Redis.parse_address("redis//localhost")
+            siderpy.Redis.parse_url("redis//localhost")
         with pytest.raises(ValueError, match=r"Scheme is not supported http"):
-            siderpy.Redis.parse_address("http://localhost")
+            siderpy.Redis.parse_url("http://localhost")
         with pytest.raises(ValueError, match=r"Path param is not supported"):
-            siderpy.Redis.parse_address("redis://localhost/0")
+            siderpy.Redis.parse_url("redis://localhost/0")
         with pytest.raises(ValueError, match=r"Hostname is required"):
-            siderpy.Redis.parse_address("redis://:password")
+            siderpy.Redis.parse_url("redis://:password")
         with pytest.raises(ValueError, match=r"Unix socket path is required"):
-            siderpy.Redis.parse_address("redis+unix://:password")
+            siderpy.Redis.parse_url("redis+unix://:password")
 
     def test__init_defaults(self):
         with mock.patch("siderpy.Protocol") as mock_proto:
@@ -329,11 +325,12 @@ class TestRedis:
 
     def test__str(self):
         redis = siderpy.Redis("redis://127.0.0.1:5555")
-        assert str(redis) == "[Redis(127.0.0.1, 5555)]"
+        assert str(redis) == "Redis[127.0.0.1, 5555]"
 
         redis = siderpy.Redis("redis+unix:///var/run/redis.sock")
-        assert str(redis) == "[Redis(redis.sock)]"
+        assert str(redis) == "Redis[redis.sock]"
 
+    @pytest.mark.asyncio
     async def test_close(self):
         redis = siderpy.Redis()
         mock_conn = mock.MagicMock()
@@ -376,6 +373,7 @@ class TestRedis:
             assert redis._pipeline is True
         assert redis._pipeline is False
 
+    @pytest.mark.asyncio
     async def test_pipeline_execute(self):
         with mock.patch.object(siderpy.Redis, "_execute_cmd_list", return_value=None) as mock_method:
             redis = siderpy.Redis()
@@ -393,18 +391,21 @@ class TestRedis:
         redis.pipeline_clear()
         assert redis._pipeline_buf == []
 
+    @pytest.mark.asyncio
     async def test__open_connection(self):
         with mock.patch("asyncio.open_connection") as mock_func:
             redis = siderpy.Redis()
             await redis._open_connection()
             mock_func.assert_awaited_once_with(host="localhost", port=6379, ssl=None, ssl_handshake_timeout=None)
 
+    @pytest.mark.asyncio
     async def test__create_unix_connection(self):
         with mock.patch("asyncio.open_unix_connection") as mock_func:
-            redis = siderpy.Redis(address="redis+unix:///var/run/redis.sock")
+            redis = siderpy.Redis(url="redis+unix:///var/run/redis.sock")
             await redis._open_connection()
             mock_func.assert_awaited_once_with(path="/var/run/redis.sock", ssl=None, ssl_handshake_timeout=None)
 
+    @pytest.mark.asyncio
     async def test__open_connection_timeout(self):
         async def sleep(*args, **kwds):
             await asyncio.sleep(10)
@@ -416,6 +417,7 @@ class TestRedis:
                 await redis._open_connection()
             mock_func.assert_awaited_once_with(host="localhost", port=6379, ssl=ssl_ctx, ssl_handshake_timeout=1)
 
+    @pytest.mark.asyncio
     async def test__open_connection_auth(self):
         with mock.patch("asyncio.open_connection") as mock_func:
             with mock.patch("siderpy.Redis._execute_cmd_list") as mock_execute_cmd_list:
@@ -424,6 +426,7 @@ class TestRedis:
             mock_func.assert_awaited_once_with(host="127.0.0.1", port=7777, ssl=None, ssl_handshake_timeout=None)
             mock_execute_cmd_list.assert_awaited_once_with([["auth", ("password",)]])
 
+    @pytest.mark.asyncio
     async def test__open_connection_acl_auth(self):
         with mock.patch("asyncio.open_connection") as mock_func:
             with mock.patch("siderpy.Redis._execute_cmd_list") as mock_execute_cmd_list:
@@ -432,6 +435,7 @@ class TestRedis:
             mock_func.assert_awaited_once_with(host="127.0.0.1", port=7777, ssl=None, ssl_handshake_timeout=None)
             mock_execute_cmd_list.assert_awaited_once_with([["auth", ("username", "password")]])
 
+    @pytest.mark.asyncio
     async def test__open_connection_custom_db(self):
         with mock.patch("asyncio.open_connection") as mock_func:
             with mock.patch("siderpy.Redis._execute_cmd_list") as mock_execute_cmd_list:
@@ -440,6 +444,7 @@ class TestRedis:
             mock_func.assert_awaited_once_with(host="127.0.0.1", port=6379, ssl=None, ssl_handshake_timeout=None)
             mock_execute_cmd_list.assert_awaited_once_with([["select", (5,)]])
 
+    @pytest.mark.asyncio
     async def test__open_connection_auth_failed(self):
         with mock.patch("asyncio.open_connection") as mock_func:
             with mock.patch("siderpy.Redis._execute_cmd_list", side_effect=siderpy.RedisError) as mock_execute_cmd_list:
@@ -451,7 +456,8 @@ class TestRedis:
             mock_execute_cmd_list.assert_awaited_once_with([["auth", ("username", "password")]])
             mock_close.assert_awaited_once()
 
-    @mock.patch("asyncio.wait_for")
+    @mock.patch("siderpy.wait_for")
+    @pytest.mark.asyncio
     async def test__read(self, mock_wait_for):
         r = mock.MagicMock()
         r.read = mock.AsyncMock(return_value=b"*1\r\n+OK\r\n")
@@ -466,6 +472,7 @@ class TestRedis:
         mock_wait_for.assert_not_awaited()
         assert data == [[b"OK"]]
 
+    @pytest.mark.asyncio
     async def test__read_timeout(self):
         async def sleep(*args, **kwds):
             await asyncio.sleep(10)
@@ -482,8 +489,9 @@ class TestRedis:
         with pytest.raises(asyncio.TimeoutError):
             await redis._read()
 
-    @mock.patch("asyncio.wait_for")
+    @mock.patch("siderpy.wait_for")
     @mock.patch("asyncio.create_task")
+    @pytest.mark.asyncio
     async def test__execute_cmd_list_open_conn(self, mock_create_task, mock_wait_for):
         r = mock.MagicMock()
         r.read = mock.AsyncMock(return_value=b"$8\r\npingpong\r\n")
@@ -508,8 +516,9 @@ class TestRedis:
         w.wait_closed.assert_not_awaited()
         mock_wait_for.assert_not_awaited()
 
-    @mock.patch("asyncio.wait_for")
+    @mock.patch("siderpy.wait_for")
     @mock.patch("asyncio.create_task")
+    @pytest.mark.asyncio
     async def test__execute_cmd_not_open_conn(self, mock_create_task, mock_wait_for):
         r = mock.MagicMock()
         r.read = mock.AsyncMock(return_value=b"$8\r\npingpong\r\n")
@@ -535,6 +544,7 @@ class TestRedis:
         mock_wait_for.assert_not_awaited()
 
     @mock.patch("asyncio.create_task")
+    @pytest.mark.asyncio
     async def test__execute_cmd_list_write_timeout(self, mock_create_task):
         r = mock.MagicMock()
         r.read = mock.AsyncMock(return_value=b"$8\r\npingpong\r\n")
@@ -558,6 +568,7 @@ class TestRedis:
         w.wait_closed.assert_awaited_once()
 
     @mock.patch("asyncio.create_task")
+    @pytest.mark.asyncio
     async def test__execute_cmd_list_read_timeout(self, mock_create_task):
         async def sleep(*args, **kwds):
             await asyncio.sleep(10)
@@ -607,8 +618,9 @@ class Test_Pool:
 
     def test__str(self):
         pool = siderpy.Pool(lambda *args: args)
-        assert str(pool) == "[Pool {}/{}]".format(siderpy.POOL_SIZE, siderpy.POOL_SIZE)
+        assert str(pool) == "Pool[{}/{}]".format(siderpy.POOL_SIZE, siderpy.POOL_SIZE)
 
+    @pytest.mark.asyncio
     async def test_get(self):
         item = object()
         factory = mock.AsyncMock(return_value=item)
@@ -618,6 +630,7 @@ class Test_Pool:
         assert len(pool._used) == 1 and item in pool._used
         assert pool._queue.qsize() == pool._size - 1
 
+    @pytest.mark.asyncio
     async def test_put(self):
         item = object()
         factory = mock.AsyncMock(return_value=item)
@@ -627,6 +640,7 @@ class Test_Pool:
         assert len(pool._used) == 0
         assert pool._queue.qsize() == pool._size
 
+    @pytest.mark.asyncio
     async def test_put_alien(self):
         item = object()
         factory = mock.AsyncMock(return_value=item)
@@ -637,6 +651,7 @@ class Test_Pool:
         assert len(pool._used) == 1
         assert pool._queue.qsize() == pool._size - 1
 
+    @pytest.mark.asyncio
     async def test_close(self):
         item1 = object()
         item2 = object()
@@ -657,7 +672,7 @@ class Test_Pool:
 class TestRedisPool:
     def test__init_defaults(self):
         pool = siderpy.RedisPool()
-        assert pool._address == "redis://localhost:6379?db=0"
+        assert pool._url == "redis://localhost:6379?db=0"
         assert pool._connect_timeout == siderpy.CONNECT_TIMEOUT
         assert pool._read_timeout is None
         assert pool._write_timeout is None
@@ -669,7 +684,7 @@ class TestRedisPool:
         pool = siderpy.RedisPool(
             "redis://127.0.0.1:7777?db=5", size=1, connect_timeout=33, timeout=(10, 20), ssl_ctx=object()
         )
-        assert pool._address == "redis://127.0.0.1:7777?db=5"
+        assert pool._url == "redis://127.0.0.1:7777?db=5"
         assert pool._connect_timeout == 33
         assert pool._read_timeout == 10
         assert pool._write_timeout == 20
@@ -679,4 +694,4 @@ class TestRedisPool:
 
     def test__str(self):
         pool = siderpy.RedisPool()
-        assert str(pool) == "[RedisPool(redis://localhost:6379?db=0){}]".format(pool._pool)
+        assert str(pool) == "RedisPool[redis://localhost:6379?db=0]{}".format(pool._pool)

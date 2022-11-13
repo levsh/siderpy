@@ -9,7 +9,8 @@ __all__ = [
     "Redis",
     "RedisPool",
 ]
-__version__ = "0.4.1"
+
+__version__ = "0.5.0"
 
 import asyncio
 import collections
@@ -22,6 +23,7 @@ import ssl
 import sys
 import typing as tp
 import urllib.parse
+from asyncio import create_task, get_event_loop, wait
 
 try:
     import hiredis
@@ -29,7 +31,7 @@ except ImportError:
     hiredis = None
 
 
-log_frmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+log_frmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(name)s lineno:%(lineno)d %(message)s")
 log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 LOG = logging.getLogger(__name__)
@@ -52,6 +54,15 @@ class RedisError(SiderPyError):
 
 class QueueClosedError(SiderPyError):
     """Closed PubSub queue error"""
+
+
+async def wait_for(coro, timeout):
+    done, pending = await wait([create_task(coro)], timeout=timeout)
+    if pending:
+        for pending_coro in pending:
+            pending_coro.cancel()
+        raise asyncio.TimeoutError
+    return list(done)[0].result()
 
 
 class Protocol:
@@ -80,7 +91,7 @@ class Protocol:
             self.has_data = self._reader.has_data
 
     def __str__(self):
-        return "[{} hiredis={}]".format(self.__class__.__name__, bool(self._reader))
+        return f"{self.__class__.__name__}[hiredis={bool(self._reader)}]"
 
     def __repr__(self):
         return self.__str__()
@@ -242,13 +253,18 @@ class PubSubQueue(asyncio.Queue):
                 else:
                     getter.set_result(None)
 
+    def _get_loop(self):
+        if sys.version_info.minor > 9:
+            return super()._get_loop()  # pylint: disable=no-member
+        return self._loop
+
     async def get(self):
         while self.empty():
             if self._closed:
                 if self._exc:
                     raise QueueClosedError from self._exc
                 raise QueueClosedError
-            getter = self._loop.create_future()
+            getter = self._get_loop().create_future()
             self._getters.append(getter)
             try:
                 await getter
@@ -328,7 +344,7 @@ class Redis:
 
     def __init__(
         self,
-        address: str = "redis://localhost:6379?db=0",
+        url: str = "redis://localhost:6379?db=0",
         connect_timeout: float = CONNECT_TIMEOUT,
         timeout: tp.Union[float, tuple, list] = TIMEOUT,
         ssl_ctx: ssl.SSLContext = None,
@@ -338,7 +354,7 @@ class Redis:
     ):
         """
         Args:
-            address (:obj:`str`, optional): The Redis server address and settings to connect as uri:
+            url (:obj:`str`, optional): The Redis server url and settings to connect as uri:
 
                 * `redis://[USERNAME][:PASSWORD@]HOST[:PORT][?db=DATABASE]`
 
@@ -372,7 +388,7 @@ class Redis:
             errors (:py:class:`str`, optional): Error handling scheme to use for handling of decoding errors.
             ssl_ctx (:py:class:`ssl.SSLContext`, optional): SSL context object to enable SSL(TLS).
         """
-        parsed = self.parse_address(address)
+        parsed = self.parse_url(url)
         self._scheme = parsed["scheme"]
         self._host = parsed["host"]
         self._username = parsed.get("username")
@@ -421,15 +437,15 @@ class Redis:
 
     def __str__(self):
         if self._scheme == "redis":
-            return "[{}({}, {})]".format(self.__class__.__name__, self._host, self._port)
-        return "[{}({})]".format(self.__class__.__name__, os.path.basename(self._path))
+            return f"{self.__class__.__name__}[{self._host}, {self._port}]"
+        return f"{self.__class__.__name__}[{os.path.basename(self._path)}]"
 
     def __repr__(self):
         return self.__str__()
 
     @classmethod
-    def parse_address(cls, address: str) -> dict:
-        parsed = urllib.parse.urlparse(address)
+    def parse_url(cls, url: str) -> dict:
+        parsed = urllib.parse.urlparse(url)
         out = {"scheme": parsed.scheme, "host": parsed.hostname}
         if not parsed.scheme:
             raise ValueError("Scheme is required")
@@ -443,7 +459,7 @@ class Redis:
                 raise ValueError("Unix socket path is required")
             out["path"] = parsed.path
         else:
-            raise ValueError("Scheme is not supported %s" % parsed.scheme)
+            raise ValueError(f"Scheme is not supported {parsed.scheme}")
         if parsed.query:
             # pylint: disable=consider-using-dict-comprehension
             db = dict([param_str.split("=", 1) for param_str in parsed.query.split("&")]).get("db")
@@ -552,7 +568,7 @@ class Redis:
         if self._connect_timeout is None:
             self._conn = await self._get_connection()
         else:
-            self._conn = await asyncio.wait_for(self._get_connection(), self._connect_timeout)
+            self._conn = await wait_for(self._get_connection(), self._connect_timeout)
         cmd_list = []
         if self._password is not None:
             if self._username is not None:
@@ -572,20 +588,23 @@ class Redis:
         data = []
         r, _ = self._conn
         proto = self._proto
+        proto_gets = proto.gets
+        proto_feed = proto.feed
+        proto_has_data = proto.has_data
         while len(data) < self._cmd_count:
             if self._read_timeout is None:
                 raw = await r.read(2048)
             else:
-                raw = await asyncio.wait_for(r.read(2048), self._read_timeout)
+                raw = await wait_for(r.read(2048), self._read_timeout)
             if raw == b"" and r.at_eof():
                 raise ConnectionError
-            proto.feed(raw)
+            proto_feed(raw)
             while True:
-                item = proto.gets()
+                item = proto_gets()
                 if item is False:
                     break
                 data.append(item)
-                if not proto.has_data():
+                if not proto_has_data():
                     break
         return data
 
@@ -598,14 +617,14 @@ class Redis:
             if not self._subscription and cmd_name in {"subscribe", "psubscribe"}:
                 self._subscription = True
         if self._subscription and self._listener is None:
-            self._listener = asyncio.create_task(self._listen())
+            self._listener = create_task(self._listen())
         if self._listener is not None:
-            self._future = asyncio.get_event_loop().create_future()
+            self._future = get_event_loop().create_future()
         _, w = self._conn
         try:
             w.write(array)
             if self._write_timeout is not None:
-                await asyncio.wait_for(w.drain(), self._write_timeout)
+                await wait_for(w.drain(), self._write_timeout)
             else:
                 await w.drain()
             self._cmd_count = len(cmd_list)
@@ -615,10 +634,10 @@ class Redis:
                 if self._read_timeout is None:
                     data = await self._future
                 else:
-                    data = await asyncio.wait_for(self._future, self._read_timeout)
+                    data = await wait_for(self._future, self._read_timeout)
             if len(data) == 1:
                 data = data[0]
-        except (asyncio.CancelledError, Exception) as e:
+        except (BaseException, Exception) as e:
             w.close()
             await w.wait_closed()
             self._conn = None
@@ -628,17 +647,22 @@ class Redis:
         return data
 
     async def _listen(self):
+        incomming = []
+        read = self._read
+        pubsub_queue = self._pubsub_queue
+        pubsub_queue_full = pubsub_queue.full
+        pubsub_queue_put_nowait = pubsub_queue.put_nowait
+        pubsub_queue_put = pubsub_queue.put
         try:
-            incomming = []
             while self._subscription:
-                data = await self._read()
+                data = await read()
                 for item in data:
                     if self._subscription:
                         if isinstance(item, list) and item[0] in {b"message", b"pmessage"}:
-                            if not self._pubsub_queue.full():
-                                self._pubsub_queue.put_nowait(item)
+                            if not pubsub_queue_full():
+                                pubsub_queue_put_nowait(item)
                             else:
-                                await self._pubsub_queue.put(item)
+                                await pubsub_queue_put(item)
                         else:
                             if isinstance(item, Exception):
                                 incomming.append(item)
@@ -648,24 +672,25 @@ class Redis:
                                 incomming.append(item)
                                 if item[0] in {b"unsubscribe", b"punsubscribe"} and item[2] == 0:
                                     self._subscription = False
-                                    self._pubsub_queue.close()
+                                    pubsub_queue.close()
                     else:
                         incomming.append(item)
                 if incomming:
                     self._future.set_result(incomming)
                     incomming = []
         except asyncio.CancelledError:
-            self._pubsub_queue.close()
+            pubsub_queue.close()
+            raise
         except (asyncio.TimeoutError, ConnectionError, OSError) as e:
             LOG.error("%s %s %s", self, e.__class__.__name__, e)
-            self._pubsub_queue.close(exc=e)
+            pubsub_queue.close(exc=e)
         except Exception as e:
             LOG.error("%s %s %s", self, e.__class__.__name__, e)
-            self._pubsub_queue.close(exc=e)
+            pubsub_queue.close(exc=e)
         finally:
+            pubsub_queue.close()
             self._listener = None
             self._subscription = False
-            self._pubsub_queue.close()
             self._pubsub_queue = PubSubQueue(maxsize=self._queue_maxsize)
 
     def __aiter__(self):
@@ -696,7 +721,7 @@ class Pool:
             self._queue.put_nowait(None)
 
     def __str__(self):
-        return "[{} {}/{}]".format(self.__class__.__name__, self._size, self._queue.qsize())
+        return f"{self.__class__.__name__}[{self._queue.qsize()}/{self._size}]"
 
     def __repr__(self):
         return self.__str__()
@@ -709,7 +734,7 @@ class Pool:
         if item is None:
             try:
                 item = await self._factory()
-            except (asyncio.CancelledError, Exception) as e:
+            except (BaseException, Exception) as e:
                 self._queue.put_nowait(None)
                 raise e
         self._used.add(item)
@@ -725,7 +750,7 @@ class Pool:
         if timeout is None:
             item = await self.get()
         else:
-            item = await asyncio.wait_for(self.get(), timeout)
+            item = await wait_for(self.get(), timeout)
         try:
             yield item
         finally:
@@ -761,7 +786,7 @@ class RedisPool:
     """
 
     __slots__ = (
-        "_address",
+        "_url",
         "_parsed",
         "_connect_timeout",
         "_read_timeout",
@@ -773,7 +798,7 @@ class RedisPool:
 
     def __init__(
         self,
-        address: str = "redis://localhost:6379?db=0",
+        url: str = "redis://localhost:6379?db=0",
         connect_timeout: float = CONNECT_TIMEOUT,
         timeout: tp.Union[float, tuple, list] = TIMEOUT,
         size: int = POOL_SIZE,
@@ -782,14 +807,14 @@ class RedisPool:
     ):
         """
         Args:
-            address (:obj:`str`, optional): same as :obj:`address` argument for :py:class:`Redis`.
+            url (:obj:`str`, optional): same as :obj:`url` argument for :py:class:`Redis`.
             connect_timeout (:obj:`float`, optional): same as :obj:`connect_timeout` argument for :obj:`Redis`.
             timeout (:obj:`float`, optional): same as :obj:`timeout` argument for :py:class:`Redis`.
             size (:obj:`int`, optional): Pool size.
             ssl_ctx (:py:class:`ssl.SSLContext`, optional): same as :obj:`ssl_ctx` argument for :py:class:`Redis`.
         """
-        self._address = address
-        self._parsed = Redis.parse_address(address)
+        self._url = url
+        self._parsed = Redis.parse_url(url)
         self._connect_timeout = connect_timeout
         if isinstance(timeout, (tuple, list)):
             self._read_timeout, self._write_timeout = timeout
@@ -801,13 +826,10 @@ class RedisPool:
         self._pool = pool_cls(self._factory, size=size)
 
     def __str__(self):
-        return "[{}({}://{}:{}?db={}){}]".format(
-            self.__class__.__name__,
-            self._parsed["scheme"],
-            self._parsed["host"],
-            self._parsed["port"],
-            self._parsed["db"],
-            self._pool,
+        parsed = self._parsed
+        return (
+            f"{self.__class__.__name__}[{parsed['scheme']}://{parsed['host']}:{parsed['port']}?db={parsed['db']}]"
+            f"{self._pool}"
         )
 
     def __repr__(self):
@@ -815,7 +837,7 @@ class RedisPool:
 
     async def _factory(self) -> Redis:
         return Redis(
-            address=self._address,
+            url=self._url,
             connect_timeout=self._connect_timeout,
             timeout=(self._read_timeout, self._write_timeout),
             ssl_ctx=self._ssl_ctx,
@@ -831,7 +853,7 @@ class RedisPool:
         >>>     await redis.ping()
         """
         if timeout is not None:
-            redis = await asyncio.wait_for(self._pool.get(), timeout)
+            redis = await wait_for(self._pool.get(), timeout)
         else:
             redis = await self._pool.get()
         try:
@@ -839,7 +861,7 @@ class RedisPool:
             if redis._listener:  # pylint: disable=protected-access
                 try:
                     # pylint: disable=protected-access
-                    await asyncio.wait_for(asyncio.wait({redis._listener}), timeout)
+                    await wait_for(asyncio.wait({redis._listener}), timeout)
                 except asyncio.TimeoutError:
                     await redis.close()
                     # pylint: disable=raise-missing-from
@@ -861,7 +883,8 @@ class RedisPool:
 
     def __getattr__(self, attr_name: str):
         if attr_name in {"multi", "exec", "discard", "subscribe", "psubscribe", "unsubscribe", "punsubscribe"}:
-            raise AttributeError("'%s' object has no attribute '%s'" % (self, attr_name))
+            raise AttributeError(f"'{self}' object has no attribute '{attr_name}'")
+
         return functools.partial(self._execute, attr_name)
 
     async def delete(self, *args):

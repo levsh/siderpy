@@ -4,7 +4,6 @@ import time
 import docker
 import pytest
 
-
 PKG_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..")
 
 
@@ -67,9 +66,11 @@ class Test:
         pytest.param("siderpy_tests_3.7", id="py3.7"),
         pytest.param("siderpy_tests_3.8", id="py3.8"),
         pytest.param("siderpy_tests_3.9", id="py3.9"),
+        pytest.param("siderpy_tests_3.10", id="py3.10"),
         pytest.param("siderpy_tests_hiredis_3.7", id="hiredis_py3.7"),
         pytest.param("siderpy_tests_hiredis_3.8", id="hiredis_py3.8"),
         pytest.param("siderpy_tests_hiredis_3.9", id="hiredis_py3.9"),
+        pytest.param("siderpy_tests_hiredis_3.10", id="hiredis_py3.10"),
     ]
 
     envs = [
@@ -78,8 +79,8 @@ class Test:
     ]
 
     commands = [
-        pytest.param("pytest --timeout=15 -sv /opt/siderpy/tests/tests_small.py", id="small"),
-        pytest.param("pytest --timeout=30 -sv /opt/siderpy/tests/tests_medium.py", id="medium"),
+        pytest.param("pytest --timeout=15 -svv /opt/siderpy/tests/tests_small.py", id="small"),
+        pytest.param("pytest --timeout=30 -svv /opt/siderpy/tests/tests_medium.py", id="medium"),
     ]
 
     @pytest.mark.parametrize("image", images)

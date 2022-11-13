@@ -37,5 +37,5 @@ services:
       - "haproxy"
     command:
       bash -c "
-        coverage run --source siderpy -m pytest --timeout=30 -sv tests/tests_small.py tests/tests_medium.py && 
+        coverage run --source siderpy -m pytest --timeout=30 -svv tests/tests_small.py tests/tests_medium.py &&
         coverage report -m"
