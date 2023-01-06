@@ -10,7 +10,7 @@ __all__ = [
     "RedisPool",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 import asyncio
 import collections
@@ -31,7 +31,7 @@ except ImportError:
     hiredis = None
 
 
-log_frmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(name)s lineno:%(lineno)d %(message)s")
+log_frmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
 log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 LOG = logging.getLogger(__name__)
@@ -526,9 +526,10 @@ class Redis:
         if self._listener:
             raise SiderPyError("Connection in PubSub mode")
         if self._pipeline_buf:
-            res = await self._execute_cmd_list(self._pipeline_buf)
-            self._pipeline_buf = []
-            return res
+            try:
+                return await self._execute_cmd_list(self._pipeline_buf)
+            finally:
+                self._pipeline_buf = []
 
     def pipeline_clear(self):
         """Clear internal pipeline buffer"""
