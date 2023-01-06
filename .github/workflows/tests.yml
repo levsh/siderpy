@@ -30,6 +30,6 @@ jobs:
         pylint siderpy.py
         flake8 siderpy.py
     - name: Run pytest
-      run: pytest --timeout=60 -sv --durations=5 tests/run.py -k Test
+      run: pytest --timeout=60 -sv --durations=5 tests/run.py::Test
     - name: Benchmark
-      run: pytest --timeout=120 -sv tests/run.py -k TestBenchmark
+      run: pytest --timeout=120 -sv tests/run.py::TestBenchmark
