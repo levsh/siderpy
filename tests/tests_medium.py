@@ -4,10 +4,9 @@ import ssl
 
 import pytest
 import pytest_asyncio
-
 import siderpy
 
-siderpy.LOG.setLevel("DEBUG")
+siderpy.logger.setLevel("DEBUG")
 
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")

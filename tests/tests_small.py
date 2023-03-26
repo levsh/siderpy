@@ -11,10 +11,9 @@ except ImportError:
     hiredis = None
 
 import pytest
-
 import siderpy
 
-siderpy.LOG.setLevel("DEBUG")
+siderpy.logger.setLevel("DEBUG")
 
 
 class TestProtocol:
@@ -223,13 +222,12 @@ class TestProtocolHiredis:
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
 class TestRedis:
     def test_parse_url(self):
-        parsed = siderpy.Redis.parse_url("redis://username:password@localhost:6379?db=0")
+        parsed = siderpy.Redis.parse_url("redis://username:password@localhost:6379/0")
         assert parsed.get("scheme") == "redis"
         assert parsed.get("username") == "username"
         assert parsed.get("password") == "password"
         assert parsed.get("host") == "localhost"
         assert parsed.get("port") == 6379
-        assert parsed.get("path") is None
         assert parsed.get("db") == 0
 
     def test__parse_invalid_url(self):
@@ -239,8 +237,6 @@ class TestRedis:
             siderpy.Redis.parse_url("redis//localhost")
         with pytest.raises(ValueError, match=r"Scheme is not supported http"):
             siderpy.Redis.parse_url("http://localhost")
-        with pytest.raises(ValueError, match=r"Path param is not supported"):
-            siderpy.Redis.parse_url("redis://localhost/0")
         with pytest.raises(ValueError, match=r"Hostname is required"):
             siderpy.Redis.parse_url("redis://:password")
         with pytest.raises(ValueError, match=r"Unix socket path is required"):
@@ -255,7 +251,6 @@ class TestRedis:
                 assert redis._password is None
                 assert redis._host == "localhost"
                 assert redis._port == 6379
-                assert redis._path is None
                 assert redis._db == 0
                 assert redis._connect_timeout == siderpy.CONNECT_TIMEOUT
                 assert redis._read_timeout is None
@@ -280,7 +275,7 @@ class TestRedis:
         with mock.patch("siderpy.Protocol") as mock_proto:
             with mock.patch("siderpy.PubSubQueue") as mock_queue:
                 redis = siderpy.Redis(
-                    "redis://user:pass@127.0.0.1:6380?db=1",
+                    "redis://user:pass@127.0.0.1:6380/1",
                     connect_timeout=33,
                     timeout=(10, 20),
                     encoding="utf-8",
@@ -293,7 +288,6 @@ class TestRedis:
                 assert redis._password == "pass"
                 assert redis._host == "127.0.0.1"
                 assert redis._port == 6380
-                assert redis._path is None
                 assert redis._db == 1
                 assert redis._connect_timeout == 33
                 assert redis._read_timeout == 10
@@ -325,7 +319,7 @@ class TestRedis:
 
     def test__str(self):
         redis = siderpy.Redis("redis://127.0.0.1:5555")
-        assert str(redis) == "Redis[127.0.0.1, 5555]"
+        assert str(redis) == "Redis[127.0.0.1:5555/0]"
 
         redis = siderpy.Redis("redis+unix:///var/run/redis.sock")
         assert str(redis) == "Redis[redis.sock]"
@@ -439,7 +433,7 @@ class TestRedis:
     async def test__open_connection_custom_db(self):
         with mock.patch("asyncio.open_connection") as mock_func:
             with mock.patch("siderpy.Redis._execute_cmd_list") as mock_execute_cmd_list:
-                redis = siderpy.Redis("redis://127.0.0.1?db=5")
+                redis = siderpy.Redis("redis://127.0.0.1/5")
                 await redis._open_connection()
             mock_func.assert_awaited_once_with(host="127.0.0.1", port=6379, ssl=None, ssl_handshake_timeout=None)
             mock_execute_cmd_list.assert_awaited_once_with([["select", (5,)]])
@@ -672,7 +666,7 @@ class Test_Pool:
 class TestRedisPool:
     def test__init_defaults(self):
         pool = siderpy.RedisPool()
-        assert pool._url == "redis://localhost:6379?db=0"
+        assert pool._url == "redis://localhost:6379/0"
         assert pool._connect_timeout == siderpy.CONNECT_TIMEOUT
         assert pool._read_timeout is None
         assert pool._write_timeout is None
@@ -682,9 +676,9 @@ class TestRedisPool:
 
     def test__init_custom(self):
         pool = siderpy.RedisPool(
-            "redis://127.0.0.1:7777?db=5", size=1, connect_timeout=33, timeout=(10, 20), ssl_ctx=object()
+            "redis://127.0.0.1:7777/5", size=1, connect_timeout=33, timeout=(10, 20), ssl_ctx=object()
         )
-        assert pool._url == "redis://127.0.0.1:7777?db=5"
+        assert pool._url == "redis://127.0.0.1:7777/5"
         assert pool._connect_timeout == 33
         assert pool._read_timeout == 10
         assert pool._write_timeout == 20
@@ -694,4 +688,4 @@ class TestRedisPool:
 
     def test__str(self):
         pool = siderpy.RedisPool()
-        assert str(pool) == "RedisPool[redis://localhost:6379?db=0]{}".format(pool._pool)
+        assert str(pool) == "RedisPool[localhost:6379/0][{}]".format(pool._pool)

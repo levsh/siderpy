@@ -63,14 +63,14 @@ def redis(container_executor):
 class Test:
 
     images = [
-        pytest.param("siderpy_tests_3.7", id="py3.7"),
         pytest.param("siderpy_tests_3.8", id="py3.8"),
         pytest.param("siderpy_tests_3.9", id="py3.9"),
         pytest.param("siderpy_tests_3.10", id="py3.10"),
-        pytest.param("siderpy_tests_hiredis_3.7", id="hiredis_py3.7"),
+        pytest.param("siderpy_tests_3.11", id="py3.11"),
         pytest.param("siderpy_tests_hiredis_3.8", id="hiredis_py3.8"),
         pytest.param("siderpy_tests_hiredis_3.9", id="hiredis_py3.9"),
         pytest.param("siderpy_tests_hiredis_3.10", id="hiredis_py3.10"),
+        pytest.param("siderpy_tests_hiredis_3.11", id="hiredis_py3.11"),
     ]
 
     envs = [
@@ -110,7 +110,7 @@ class TestBenchmark:
 
     @pytest.mark.parametrize("env", envs)
     def test_benchmark(self, redis, container_executor, env):
-        image = "siderpy_tests_hiredis_3.8"
+        image = "siderpy_tests_hiredis_3.10"
         command = "pytest /opt/siderpy/tests/tests_benchmark.py"
         environment = ["REDIS_HOST=redis", "REDIS_PORT=6379"] + env
         links = {redis.id: "redis"}

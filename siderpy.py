@@ -2,7 +2,7 @@ __all__ = [
     "SiderPyError",
     "RedisError",
     "QueueClosedError",
-    "LOG",
+    "logger",
     "CONNECT_TIMEOUT",
     "TIMEOUT",
     "POOL_SIZE",
@@ -10,7 +10,7 @@ __all__ = [
     "RedisPool",
 ]
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 import asyncio
 import collections
@@ -21,9 +21,9 @@ import numbers
 import os
 import ssl
 import sys
-import typing as tp
 import urllib.parse
 from asyncio import create_task, get_event_loop, wait
+from typing import Callable, Coroutine, Union
 
 try:
     import hiredis
@@ -34,9 +34,9 @@ except ImportError:
 log_frmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
 log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
-LOG = logging.getLogger(__name__)
-LOG.addHandler(log_hndl)
-LOG.setLevel("INFO")
+logger = logging.getLogger(__name__)
+logger.addHandler(log_hndl)
+logger.setLevel(logging.WARNING)
 
 
 CONNECT_TIMEOUT = None
@@ -103,7 +103,7 @@ class Protocol:
             self._ready.clear()
             self._unparsed = b""
 
-    def make_cmd(self, cmd_name: str, cmd_args: tp.Union[tuple, list]) -> bytearray:
+    def make_cmd(self, cmd_name: str, cmd_args: Union[tuple, list]) -> bytearray:
         buf = bytearray()
         buf.extend(b"*%d\r\n$%d\r\n%s\r\n" % (len(cmd_args) + 1, len(cmd_name), cmd_name.encode()))
         for arg in cmd_args:
@@ -309,7 +309,7 @@ class Redis:
     Examples:
 
         >>> import siderpy
-        >>> redis = siderpy.Redis('redis://username:password@localhost:6379?db=0')
+        >>> redis = siderpy.Redis('redis://username:password@localhost:6379/0')
         >>> await redis.ping()
         >>> ...
         >>> await redis.close()
@@ -344,9 +344,9 @@ class Redis:
 
     def __init__(
         self,
-        url: str = "redis://localhost:6379?db=0",
-        connect_timeout: float = CONNECT_TIMEOUT,
-        timeout: tp.Union[float, tuple, list] = TIMEOUT,
+        url: str = "redis://localhost:6379/0",
+        connect_timeout: Union[float, int] = CONNECT_TIMEOUT,
+        timeout: Union[float, tuple, list] = TIMEOUT,
         ssl_ctx: ssl.SSLContext = None,
         encoding=None,
         errors=None,
@@ -356,11 +356,12 @@ class Redis:
         Args:
             url (:obj:`str`, optional): The Redis server url and settings to connect as uri:
 
-                * `redis://[USERNAME][:PASSWORD@]HOST[:PORT][?db=DATABASE]`
+                * `redis://[USERNAME][:PASSWORD@]HOST[:PORT]/[DATABASE]`
 
                 * `redis+unix://[USERNAME][:PASSWORD@]SOCKET_PATH[?db=DATABASE]`
+                * `redis-socket://[USERNAME][:PASSWORD@]SOCKET_PATH[?db=DATABASE]`
 
-                default: `redis://localhost:6379?db=0`
+                default: `redis://localhost:6379/0`
             connect_timeout (:obj:`float`, optional): Timeout used to get initialized :py:class:`Redis` instance
                 and as :obj:`ssl_handshake_timeout` argument for :obj:`asyncio.open_connection` call.
             timeout (:obj:`float`, optional): Timeout used for read and write operations.
@@ -403,6 +404,8 @@ class Redis:
             self._read_timeout = timeout
             self._write_timeout = timeout
         self._ssl_ctx = ssl_ctx
+        if self._scheme == "rediss" and self._ssl_ctx is None:
+            self._ssl_ctx = ssl.create_default_context()
         self._handshake_timeout = None
         if self._ssl_ctx:
             self._handshake_timeout = self._connect_timeout
@@ -436,8 +439,8 @@ class Redis:
             )
 
     def __str__(self):
-        if self._scheme == "redis":
-            return f"{self.__class__.__name__}[{self._host}, {self._port}]"
+        if self._scheme in ("redis", "rediss"):
+            return f"{self.__class__.__name__}[{self._host}:{self._port}/{self._db}]"
         return f"{self.__class__.__name__}[{os.path.basename(self._path)}]"
 
     def __repr__(self):
@@ -446,23 +449,30 @@ class Redis:
     @classmethod
     def parse_url(cls, url: str) -> dict:
         parsed = urllib.parse.urlparse(url)
-        out = {"scheme": parsed.scheme, "host": parsed.hostname}
+        out = {"scheme": parsed.scheme, "host": parsed.hostname, "path": parsed.path}
         if not parsed.scheme:
             raise ValueError("Scheme is required")
-        if parsed.scheme == "redis":
+        if parsed.query:
+            # pylint: disable=consider-using-dict-comprehension
+            params = dict([param_str.split("=", 1) for param_str in parsed.query.split("&")])
+        else:
+            params = {}
+        if parsed.scheme in ("redis", "rediss"):
             if not parsed.hostname:
                 raise ValueError("Hostname is required")
             if parsed.path:
-                raise ValueError("Path param is not supported")
-        elif parsed.scheme == "redis+unix":
+                db = parsed.path.lstrip("/")
+                if not db.isdigit():
+                    raise ValueError("db param must be integer")
+                out["db"] = int(db)
+        elif parsed.scheme in ("redis+unix", "redis-socket", "unix"):
             if not parsed.path:
                 raise ValueError("Unix socket path is required")
-            out["path"] = parsed.path
+            out["password"] = params.get("password")
         else:
             raise ValueError(f"Scheme is not supported {parsed.scheme}")
         if parsed.query:
-            # pylint: disable=consider-using-dict-comprehension
-            db = dict([param_str.split("=", 1) for param_str in parsed.query.split("&")]).get("db")
+            db = params.get("db")
             if db is not None:
                 if not db.isdigit():
                     raise ValueError("db param must be integer")
@@ -683,10 +693,10 @@ class Redis:
             pubsub_queue.close()
             raise
         except (asyncio.TimeoutError, ConnectionError, OSError) as e:
-            LOG.error("%s %s %s", self, e.__class__.__name__, e)
+            logger.error("%s %s %s", self, e.__class__.__name__, e)
             pubsub_queue.close(exc=e)
         except Exception as e:
-            LOG.error("%s %s %s", self, e.__class__.__name__, e)
+            logger.error("%s %s %s", self, e.__class__.__name__, e)
             pubsub_queue.close(exc=e)
         finally:
             pubsub_queue.close()
@@ -713,7 +723,7 @@ class Pool:
 
     __slots__ = ("_factory", "_size", "_queue", "_used")
 
-    def __init__(self, factory: tp.Coroutine, size: int = POOL_SIZE):
+    def __init__(self, factory: Coroutine, size: int = POOL_SIZE):
         self._factory = factory
         self._size = size
         self._queue = asyncio.LifoQueue(maxsize=self._size)
@@ -758,7 +768,7 @@ class Pool:
             self._used.remove(item)
             self._queue.put_nowait(item)
 
-    async def close(self, func: tp.Callable):
+    async def close(self, func: Callable):
         coros = [func(item) for item in self._used]
         while self._queue.qsize():
             item = self._queue.get_nowait()
@@ -771,7 +781,7 @@ class RedisPool:
     """Class representing a pool of connections to a Redis server
 
         >>> import siderpy
-        >>> pool = siderpy.RedisPool('redis://localhost:6379?db=0', size=10)
+        >>> pool = siderpy.RedisPool('redis://localhost:6379/0', size=10)
         >>> await pool.ping()
         >>> await pool.get('key')
         >>> ...
@@ -799,9 +809,9 @@ class RedisPool:
 
     def __init__(
         self,
-        url: str = "redis://localhost:6379?db=0",
+        url: str = "redis://localhost:6379/0",
         connect_timeout: float = CONNECT_TIMEOUT,
-        timeout: tp.Union[float, tuple, list] = TIMEOUT,
+        timeout: Union[float, tuple, list] = TIMEOUT,
         size: int = POOL_SIZE,
         pool_cls=Pool,
         ssl_ctx: ssl.SSLContext = None,
@@ -828,10 +838,9 @@ class RedisPool:
 
     def __str__(self):
         parsed = self._parsed
-        return (
-            f"{self.__class__.__name__}[{parsed['scheme']}://{parsed['host']}:{parsed['port']}?db={parsed['db']}]"
-            f"{self._pool}"
-        )
+        if parsed["scheme"] in ("redis", "rediss"):
+            return f"{self.__class__.__name__}[{parsed['host']}:{parsed['port']}/{parsed['db']}][{self._pool}]"
+        return f"{self.__class__.__name__}[{os.path.basename(self._path)}]"
 
     def __repr__(self):
         return self.__str__()
